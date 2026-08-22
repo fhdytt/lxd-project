@@ -33,22 +33,22 @@ Istilah-istilah berikut sempat berubah makna selama proses desain. Versi final (
 ## 1.3 Diagram Arsitektur
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                      1 Server Fisik (Ubuntu)                   │
-│                                                                 │
-│   ┌─────────────────────────┐    ┌─────────────────────────┐  │
-│   │   Host OS (native)       │    │   LXD (container layer)  │  │
-│   │                          │    │                           │  │
-│   │  - PostgreSQL            │    │  master-netbegin (stopped)│ │
-│   │  - Go API backend        │◄───┤  master-netadmin (stopped)│ │
-│   │    (praktikum-api)       │    │                           │  │
-│   │  - Web dashboard         │    │  f491-01 .. f491-XX       │  │
-│   │    (rencana)             │    │  f492-01 .. f492-XX       │  │
-│   │                          │    │  f4111-.. / f4112-..      │  │
-│   │                          │    │  (tiap container jalankan │  │
-│   │                          │    │   praktikum-tui saat SSH) │  │
-│   └─────────────────────────┘    └─────────────────────────┘  │
-└───────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                      1 Server Fisik (Ubuntu)                      │
+│                                                                   │
+│   ┌──────────────────────────┐    ┌────────────────────────────┐  │
+│   │   Host OS (native)       │    │   LXD (container layer)    │  │
+│   │                          │    │                            │  │
+│   │  - PostgreSQL            │    │  master-netbegin (stopped) │  │
+│   │  - Go API backend        │◄───┤  master-netadmin (stopped) │  │
+│   │    (praktikum-api)       │    │                            │  │
+│   │  - Web dashboard         │    │  f491-01 .. f491-XX        │  │
+│   │    (rencana)             │    │  f492-01 .. f492-XX        │  │
+│   │                          │    │  f4111-.. / f4112-..       │  │
+│   │                          │    │  (tiap container jalankan  │  │
+│   │                          │    │   praktikum-tui saat SSH)  │  │
+│   └──────────────────────────┘    └────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 Alur data singkat:
