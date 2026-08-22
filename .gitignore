@@ -1,1 +1,40 @@
+# Compiled binaries / Executables
+*.exe
+*.exe-
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+dist/
+build/
+main
+
+# Go test & coverage binaries
+*.cover
+*.mo
+
+# Dependency directory (jika menggunakan vendor)
+vendor/
+
+# Environment variables & secrets (SANGAT PENTING)
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Log files
+*.log
+
+# Temporary / OS files
+tmp/
+temp/
