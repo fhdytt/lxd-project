@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -31,27 +33,49 @@ type model struct {
 	envInfo *EnvInfo
 	errMsg  string
 
+	// shouldContinueToShell HANYA true kalau alur identifikasi benar-benar
+	// selesai dengan sukses. Ctrl+C atau error apapun TIDAK mengubah flag
+	// ini, sehingga main() tahu persis kapan boleh exec ke shell dan kapan
+	// harus menutup sesi begitu saja.
+	shouldContinueToShell bool
+
 	inputNama textinput.Model
 	inputNPM  textinput.Model
+	spin      spinner.Model
+
+	windowWidth  int
+	windowHeight int
 }
 
 // ==================== STYLES ====================
+// Skema warna sengaja dibuat konsisten (aksen biru/cyan) dan minim —
+// styling berbasis teks seperti ini praktis tidak menambah beban CPU/memory
+// dibanding tampilan polos, karena tetap murni rendering teks di terminal.
 
 var (
+	accent    = lipgloss.Color("39")
+	accentDim = lipgloss.Color("245")
+	danger    = lipgloss.Color("203")
+	muted     = lipgloss.Color("241")
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("39")).
+			Foreground(accent).
 			Padding(0, 1)
+
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(accentDim).
+			Italic(true)
 
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39")).
+			BorderForeground(accent).
 			Padding(1, 3)
 
-	labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	labelStyle = lipgloss.NewStyle().Foreground(accentDim)
 	valueStyle = lipgloss.NewStyle().Bold(true)
-	hintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	hintStyle  = lipgloss.NewStyle().Foreground(muted).Italic(true)
+	errStyle   = lipgloss.NewStyle().Foreground(danger).Bold(true)
 )
 
 // ==================== MESSAGES ====================
@@ -73,22 +97,29 @@ func initialModel(client *APIClient) model {
 	nama.Focus()
 	nama.CharLimit = 150
 	nama.Width = 40
+	nama.PromptStyle = lipgloss.NewStyle().Foreground(accent)
 
 	npm := textinput.New()
 	npm.Placeholder = "NPM"
 	npm.CharLimit = 30
 	npm.Width = 40
+	npm.PromptStyle = lipgloss.NewStyle().Foreground(accent)
+
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
 	return model{
 		client:    client,
 		state:     screenLoading,
 		inputNama: nama,
 		inputNPM:  npm,
+		spin:      sp,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return fetchEnvInfoCmd(m.client)
+	return tea.Batch(fetchEnvInfoCmd(m.client), m.spin.Tick)
 }
 
 func fetchEnvInfoCmd(client *APIClient) tea.Cmd {
@@ -110,9 +141,21 @@ func submitIdentityCmd(client *APIClient, nama, npm string) tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		return m, nil
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			// shouldContinueToShell TETAP false di sini -> main() akan
+			// menutup sesi, BUKAN melanjutkan ke shell.
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
@@ -130,10 +173,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case identitySubmittedMsg:
 		if msg.err != nil {
 			m.state = screenError
-			m.errMsg = msg.err.Error()
+			if errors.Is(msg.err, ErrIdentityMismatch) {
+				m.errMsg = "Nama/NPM tidak cocok dengan environment ini.\nEnvironment ini sudah terdaftar atas nama praktikan lain."
+			} else {
+				m.errMsg = msg.err.Error()
+			}
 			return m, nil
 		}
-		// Berhasil -> keluar dari Bubble Tea, lanjut exec ke shell di main()
+		// Sukses (baik pengisian baru maupun verifikasi identitas yang
+		// cocok) -> baru di sini flag diizinkan lanjut ke shell.
+		m.shouldContinueToShell = true
 		return m, tea.Quit
 	}
 
@@ -145,10 +194,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenDashboard:
 		if msg.String() == "enter" {
-			if m.envInfo.AlreadyIdentified {
-				// Sudah pernah isi data sebelumnya, langsung lanjut ke shell.
-				return m, tea.Quit
-			}
+			// Selalu minta identifikasi/verifikasi, TIDAK ADA jalan pintas
+			// otomatis lolos walau environment ini sudah pernah diisi
+			// sebelumnya — praktikan lain yang menggunakan PC yang sama
+			// wajib gagal verifikasi kalau NPM-nya berbeda.
 			m.state = screenInputNama
 			m.inputNama.Focus()
 		}
@@ -182,8 +231,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenError:
 		if msg.String() == "enter" {
-			// Coba lagi dari awal
 			m.state = screenLoading
+			m.inputNama.SetValue("")
+			m.inputNPM.SetValue("")
 			return m, fetchEnvInfoCmd(m.client)
 		}
 		return m, nil
@@ -194,26 +244,53 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ==================== VIEW ====================
 
+// renderBox membungkus konten dalam box bergaya, dengan lebar yang
+// menyesuaikan ukuran terminal (responsive) dan diposisikan di tengah layar
+// kalau ukuran terminal sudah diketahui.
+func (m model) renderBox(content string) string {
+	width := 56
+	if m.windowWidth > 0 {
+		width = m.windowWidth - 10
+		if width > 60 {
+			width = 60
+		}
+		if width < 30 {
+			width = 30
+		}
+	}
+
+	box := boxStyle.Width(width).Render(content)
+
+	if m.windowWidth > 0 && m.windowHeight > 0 {
+		return lipgloss.Place(m.windowWidth, m.windowHeight, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
+}
+
 func (m model) View() string {
 	switch m.state {
 
 	case screenLoading:
-		return "\n  Menghubungkan ke server, mohon tunggu...\n"
+		return m.renderBox(fmt.Sprintf("%s Menghubungkan ke server...", m.spin.View()))
 
 	case screenDashboard:
-		return m.viewDashboard()
+		return m.renderBox(m.viewDashboard())
 
 	case screenInputNama:
-		return boxStyle.Render(fmt.Sprintf(
+		hint := "Masukkan nama lengkap:"
+		if m.envInfo != nil && m.envInfo.AlreadyIdentified {
+			hint = "Environment ini sudah terdaftar. Masukkan nama untuk verifikasi:"
+		}
+		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n%s\n\n%s",
 			titleStyle.Render("Identifikasi Praktikan"),
-			labelStyle.Render("Masukkan nama lengkap:"),
+			labelStyle.Render(hint),
 			m.inputNama.View(),
 			hintStyle.Render("[Enter] lanjut  •  [Ctrl+C] batal"),
 		))
 
 	case screenInputNPM:
-		return boxStyle.Render(fmt.Sprintf(
+		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s %s\n\n%s\n%s\n\n%s",
 			titleStyle.Render("Identifikasi Praktikan"),
 			labelStyle.Render("Nama:"), valueStyle.Render(m.inputNama.Value()),
@@ -223,12 +300,12 @@ func (m model) View() string {
 		))
 
 	case screenSubmitting:
-		return "\n  Mengirim data, mohon tunggu...\n"
+		return m.renderBox(fmt.Sprintf("%s Memverifikasi identitas...", m.spin.View()))
 
 	case screenError:
-		return boxStyle.Render(fmt.Sprintf(
+		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
-			errStyle.Render("Terjadi kesalahan"),
+			errStyle.Render("⚠ Terjadi Kesalahan"),
 			m.errMsg,
 			hintStyle.Render("[Enter] coba lagi  •  [Ctrl+C] keluar"),
 		))
@@ -239,25 +316,29 @@ func (m model) View() string {
 func (m model) viewDashboard() string {
 	info := m.envInfo
 
-	identStatus := "Belum diisi"
+	identStatus := valueStyle.Render("Belum diisi")
 	if info.AlreadyIdentified {
-		identStatus = "Sudah diisi"
+		identStatus = lipgloss.NewStyle().Bold(true).Foreground(accent).Render("Sudah terdaftar (perlu verifikasi)")
 	}
 
+	divider := lipgloss.NewStyle().Foreground(muted).Render(strings.Repeat("─", 40))
+
 	body := fmt.Sprintf(
-		"%s\n\n%s %s\n%s %s\n%s %s\n%s %d\n%s %s\n%s %s\n%s %s\n\n%s",
-		titleStyle.Render("Dashboard Sesi Praktikum"),
+		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %d\n%s %s\n%s %s\n%s %s\n\n%s",
+		titleStyle.Render("📋 Dashboard Sesi Praktikum"),
+		subtitleStyle.Render("Sistem Manajemen Environment Praktikum"),
+		divider,
 		labelStyle.Render("Kode Kursus  :"), valueStyle.Render(info.CourseCode),
 		labelStyle.Render("Modul        :"), valueStyle.Render(info.Module),
 		labelStyle.Render("Ruangan      :"), valueStyle.Render(info.Room),
 		labelStyle.Render("Pertemuan ke :"), info.MeetingNumber,
 		labelStyle.Render("Tanggal      :"), valueStyle.Render(info.SessionDate),
 		labelStyle.Render("Status Env   :"), valueStyle.Render(info.Status),
-		labelStyle.Render("Identifikasi :"), valueStyle.Render(identStatus),
+		labelStyle.Render("Identifikasi :"), identStatus,
 		hintStyle.Render("[Enter] lanjutkan  •  [Ctrl+C] keluar"),
 	)
 
-	return boxStyle.Render(body)
+	return body
 }
 
 // ==================== MAIN ====================
@@ -278,8 +359,6 @@ func getContainerEnv(key string) string {
 		return ""
 	}
 
-	// /proc/1/environ berisi pasangan KEY=VALUE yang dipisah byte NUL (\x00),
-	// bukan newline seperti file teks biasa.
 	for _, entry := range strings.Split(string(data), "\x00") {
 		if strings.HasPrefix(entry, key+"=") {
 			return strings.TrimPrefix(entry, key+"=")
@@ -307,12 +386,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Kalau keluar dalam kondisi error yang belum terselesaikan (misal user Ctrl+C
-	// saat masih di layar error/loading), jangan lanjut ke shell, tutup sesi saja.
 	m := finalModel.(model)
-	if m.state == screenError && m.envInfo == nil {
+
+	// Titik keputusan tunggal: HANYA lanjut ke shell kalau alur identifikasi
+	// benar-benar selesai sukses. Ctrl+C kapan pun (di layar manapun) akan
+	// selalu berakhir di sini dengan shouldContinueToShell == false.
+	if !m.shouldContinueToShell {
 		fmt.Println("Sesi ditutup.")
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	execShell()

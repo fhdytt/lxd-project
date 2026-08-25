@@ -2,23 +2,21 @@
 
 ## 2.1 Kondisi Awal
 
-Sebelum project ini di-redesign, sudah ada instalasi LXD yang pernah dipakai untuk eksperimen sebelumnya:
+Sebelum project ini sudah ada instalasi LXD yang pernah dipakai untuk uji coba sebelumnya:
 
 ```bash
-lxc storage list   # pool-lab (zfs) sudah ada
-lxc network list   # lxdbr0 sudah ada, subnet 10.184.56.1/24
+lxc storage list    # pool-lab (zfs) sudah ada
+lxc network list    # lxdbr0 sudah ada dengan subnet 10.184.56.1/24
 lxc profile list    # hanya ada profile "default"
-lxc list            # ada 1 container sisa: master-netbegin (stopped, masih bersih)
+lxc list            # ada 1 container master-netbegin (stopped, masih bersih)
 lxc image list      # ubuntu 24.04 sudah ter-cache lokal
 ```
-
-**Keputusan:** storage pool (`pool-lab`, ZFS) dan network bridge (`lxdbr0`) **di-reuse**, tidak dibuat ulang dari nol — menghindari risiko mengganggu resource yang sudah terpakai.
 
 ## 2.2 Storage & Network
 
 | Komponen | Nilai | Catatan |
 |---|---|---|
-| Storage pool | `pool-lab` | Driver **ZFS** — dipilih karena snapshot/clone berbasis copy-on-write, jauh lebih cepat & hemat disk dibanding driver `dir` |
+| Storage pool | `pool-lab` | Driver **ZFS** dipilih karena snapshot/clone berbasis copy-on-write, jauh lebih cepat & hemat disk dibanding driver `dir` |
 | Network bridge | `lxdbr0` | Subnet `10.184.56.1/24` |
 | LXD version | 5.21.6 LTS | |
 
@@ -27,74 +25,65 @@ lxc image list      # ubuntu 24.04 sudah ter-cache lokal
 Dua profile dibuat untuk membedakan alokasi resource per jenis modul. Karena VM testing awal hanya 2 core/4GB, dipakai `limits.cpu.allowance` (persentase waktu CPU / CPU sharing), **bukan** `limits.cpu` (reserved core penuh), supaya container bisa berbagi core tanpa oversubscribe.
 
 ```bash
-# netbegin — ringan, cuma user/group/sftp
-lxc profile create praktikum-netbegin
-lxc profile device add praktikum-netbegin root disk path=/ pool=pool-lab
-lxc profile device add praktikum-netbegin eth0 nic network=lxdbr0
-lxc profile set praktikum-netbegin limits.cpu.allowance 20%
-lxc profile set praktikum-netbegin limits.memory 256MB
+# netbegin — ringan
+lxc profile create kursus-netbegin
+lxc profile device add kursus-netbegin root disk path=/ pool=pool-lab
+lxc profile device add kursus-netbegin eth0 nic network=lxdbr0
+lxc profile set kursus-netbegin limits.cpu.allowance 20%
+lxc profile set kursus-netbegin limits.memory 256MB
 
-# netadmin — lebih berat, nmap & tools security
-lxc profile create praktikum-netadmin
-lxc profile device add praktikum-netadmin root disk path=/ pool=pool-lab
-lxc profile device add praktikum-netadmin eth0 nic network=lxdbr0
-lxc profile set praktikum-netadmin limits.cpu.allowance 40%
-lxc profile set praktikum-netadmin limits.memory 512MB
+# netadmin — lebih berat
+lxc profile create kursus-netadmin
+lxc profile device add kursus-netadmin root disk path=/ pool=pool-lab
+lxc profile device add kursus-netadmin eth0 nic network=lxdbr0
+lxc profile set kursus-netadmin limits.cpu.allowance 40%
+lxc profile set kursus-netadmin limits.memory 512MB
 ```
 
-> **Catatan skalabilitas:** angka di atas hanya untuk skala uji coba (2 core/4GB, 5 container/ruang). Saat pindah ke server produksi dengan spek lebih besar, jalankan `lxc profile set` ulang dengan nilai baru — tidak perlu rebuild profile dari nol.
+> **Catatan skalabilitas:** angka di atas hanya untuk skala uji coba (2 core/4GB, 3 container/ruang). Saat digunakan ke server dengan spek lebih besar, jalankan `lxc profile set` ulang dengan nilai baru yang diperlukan tidak perlu rebuild profile dari nol
 
 ## 2.4 Master Container
 
-Master container adalah "golden template" per modul. Selalu **stopped** kecuali sedang dikonfigurasi — tidak pernah dipakai langsung oleh praktikan, hanya jadi sumber clone.
+Master container merupakan template per modul. Selalu **stopped** kecuali sedang dikonfigurasi, container ini tidak digunakan langsung oleh praktikan, hanya jadi sumber clone.
 
 ### Konvensi penamaan
 
 ```
-master-<kode-modul>
+master-<nama-modul>
 ```
 Contoh: `master-netbegin`, `master-netadmin`.
 
 ### Langkah setup umum
 
 ```bash
-lxc start master-<modul>
-lxc exec master-<modul> -- bash
+lxc start master-<nama-modul>
+lxc exec master-<nama-modul> -- bash
 ```
 
 Di dalam container:
 ```bash
 apt update && apt upgrade -y
 apt install -y openssh-server
-# setup user/group dasar sesuai kebutuhan modul
+# setup dasar sesuai kebutuhan modul
 ```
 
 ### Fix penting: SSH socket activation
 
-Ubuntu 22.04+/24.04 memakai **socket activation** untuk sshd — `ssh.service` baru di-*spawn* saat ada koneksi masuk ke `ssh.socket`, bukan selalu aktif. Ini menyebabkan percobaan SSH pertama ke container hasil clone kadang gagal (lihat [Troubleshooting](08-troubleshooting.md#31-ssh-socket-activation)). Fix diterapkan di **setiap master**:
+Ubuntu 22.04+/24.04 memakai **socket activation** untuk sshd, dengan kata lain `ssh.service` baru muncul saat ada koneksi masuk ke `ssh.socket`, bukan selalu aktif. Ini menyebabkan percobaan SSH pertama ke container hasil clone kadang gagal, Fix diterapkan di **setiap master**:
 
 ```bash
-lxc exec master-<modul> -- systemctl disable ssh.socket
-lxc exec master-<modul> -- systemctl enable ssh.service
-lxc exec master-<modul> -- systemctl start ssh.service
-lxc exec master-<modul> -- systemctl status ssh.service   # pastikan "active (running)"
+lxc exec master-<nama-modul> -- systemctl disable ssh.socket
+lxc exec master-<nama-modul> -- systemctl enable ssh.service
+lxc exec master-<nama-modul> -- systemctl start ssh.service
+lxc exec master-<nama-modul> -- systemctl status ssh.service   # pastikan "active (running)"
 ```
 
 ### Selesai konfigurasi
 
 ```bash
 exit
-lxc stop master-<modul>
+lxc stop master-<nama-modul>
 ```
-
-### Status per modul
-
-| Master | Status |
-|---|---|
-| `master-netbegin` | Selesai: openssh-server, user/group, SFTP, fix socket activation, TUI terpasang. Tervalidasi SFTP (WinSCP) dan SSH+TUI end-to-end. |
-| `master-netadmin` | Setup dasar selesai (openssh, update, fix socket activation). Tools security (nmap, dll) menunggu daftar resmi dari senior lab. TUI **belum** dipasang. |
-
-> **Catatan capability tools network/security:** LXD unprivileged container (default) umumnya tetap bisa menjalankan tools seperti `nmap`, `tcpdump`, `iptables` untuk keperluan di dalam namespace container itu sendiri. Yang tidak didukung secara default (dan sengaja tidak dilonggarkan) adalah operasi yang butuh akses ke luar namespace container (capture traffic container lain, modifikasi firewall host) — karena akan melanggar isolasi antar praktikan.
 
 ## 2.5 Skema Penamaan & Port SSH
 
@@ -106,7 +95,7 @@ lxc stop master-<modul>
 | `f4112` | `24` |
 
 Nama container: `<ruangan>-<nomor 2 digit>`, contoh `f491-01`, `f491-02`, dst.
-Port SSH eksternal: `<prefix><nomor>`, contoh `f491-01` → port `2101`.
+Port SSH: `<prefix><nomor>`, contoh `f491-01` → port `2101`.
 
 Port dipetakan lewat **proxy device** LXD:
 ```bash

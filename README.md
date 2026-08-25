@@ -1,12 +1,12 @@
-# Sistem Manajemen Environment Praktikum
+# Sistem Manajemen Environment Linux
 
-Sistem informasi manajemen environment praktikum berbasis container (LXD) untuk laboratorium komputer. Menyediakan environment Linux terisolasi per praktikan, dapat diakses lewat SSH, dengan identifikasi otomatis lewat dashboard terminal (TUI), dan dikelola lewat web dashboard (dalam pengembangan) oleh admin/asisten lab.
+Sistem informasi manajemen environment linux berbasis container (LXD) untuk kebutuhan praktikum. Menyediakan environment Linux terisolasi per praktikan, dapat diakses lewat SSH, dengan identifikasi otomatis lewat dashboard terminal (TUI), dan dikelola lewat web dashboard.
 
 ## Daftar Dokumentasi
 
 | # | Dokumen | Isi |
 |---|---|---|
-| 1 | [Arsitektur Sistem](docs/01-arsitektur-sistem.md) | Latar belakang, terminologi, diagram arsitektur keseluruhan, keputusan deployment |
+| 1 | [Arsitektur Sistem](docs/01-arsitektur-sistem.md) | Latar belakang, diagram arsitektur keseluruhan, dan penjelasan arsitektur |
 | 2 | [Infrastruktur LXD](docs/02-infrastruktur-lxd.md) | Storage, network, profile, master container, provisioning, reset/snapshot |
 | 3 | [Skema Database](docs/03-skema-database.md) | Struktur tabel PostgreSQL, relasi, dan alasan tiap keputusan desain |
 | 4 | [TUI Praktikan](docs/04-tui-praktikan.md) | Dashboard terminal yang dilihat praktikan saat SSH login |

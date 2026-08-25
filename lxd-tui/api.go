@@ -68,6 +68,12 @@ type identifyRequest struct {
 	NPM  string `json:"npm"`
 }
 
+// ErrIdentityMismatch dikembalikan saat environment sudah pernah diisi oleh
+// praktikan lain, dan NPM yang di-submit sekarang tidak cocok. Ini SENGAJA
+// bukan error fatal biasa — TUI menampilkan pesan yang jelas ke pengguna,
+// bukan pesan error generik.
+var ErrIdentityMismatch = errors.New("nama/npm tidak cocok dengan environment ini")
+
 func (c *APIClient) SubmitIdentity(nama, npm string) error {
 	payload, _ := json.Marshal(identifyRequest{Nama: nama, NPM: npm})
 
@@ -84,9 +90,8 @@ func (c *APIClient) SubmitIdentity(nama, npm string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusConflict {
-		// Sudah pernah diisi sebelumnya — bukan error fatal, TUI tetap boleh lanjut ke shell.
-		return nil
+	if resp.StatusCode == http.StatusForbidden {
+		return ErrIdentityMismatch
 	}
 
 	if resp.StatusCode != http.StatusOK {
