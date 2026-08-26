@@ -23,6 +23,8 @@ const (
 	screenInputNama
 	screenInputNPM
 	screenSubmitting
+	screenSelectUser   // NEW: pilih mau login sebagai user Linux apa
+	screenLocalPassword // NEW: masukkan password akun Linux yang dipilih
 	screenError
 )
 
@@ -33,24 +35,26 @@ type model struct {
 	envInfo *EnvInfo
 	errMsg  string
 
-	// shouldContinueToShell HANYA true kalau alur identifikasi benar-benar
-	// selesai dengan sukses. Ctrl+C atau error apapun TIDAK mengubah flag
-	// ini, sehingga main() tahu persis kapan boleh exec ke shell dan kapan
-	// harus menutup sesi begitu saja.
+	// shouldContinueToShell HANYA true kalau seluruh alur (identifikasi API
+	// + verifikasi password akun Linux) benar-benar selesai sukses. Ctrl+C
+	// atau error apapun TIDAK mengubah flag ini.
 	shouldContinueToShell bool
+	selectedUsername      string
 
-	inputNama textinput.Model
-	inputNPM  textinput.Model
-	spin      spinner.Model
+	inputNama     textinput.Model
+	inputNPM      textinput.Model
+	inputPassword textinput.Model
+	spin          spinner.Model
+
+	localUsers  []LocalUser
+	userCursor  int
+	pwError     string
 
 	windowWidth  int
 	windowHeight int
 }
 
 // ==================== STYLES ====================
-// Skema warna sengaja dibuat konsisten (aksen biru/cyan) dan minim —
-// styling berbasis teks seperti ini praktis tidak menambah beban CPU/memory
-// dibanding tampilan polos, karena tetap murni rendering teks di terminal.
 
 var (
 	accent    = lipgloss.Color("39")
@@ -72,10 +76,12 @@ var (
 			BorderForeground(accent).
 			Padding(1, 3)
 
-	labelStyle = lipgloss.NewStyle().Foreground(accentDim)
-	valueStyle = lipgloss.NewStyle().Bold(true)
-	hintStyle  = lipgloss.NewStyle().Foreground(muted).Italic(true)
-	errStyle   = lipgloss.NewStyle().Foreground(danger).Bold(true)
+	labelStyle   = lipgloss.NewStyle().Foreground(accentDim)
+	valueStyle   = lipgloss.NewStyle().Bold(true)
+	hintStyle    = lipgloss.NewStyle().Foreground(muted).Italic(true)
+	errStyle     = lipgloss.NewStyle().Foreground(danger).Bold(true)
+	cursorStyle  = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	menuItemDim  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 )
 
 // ==================== MESSAGES ====================
@@ -86,6 +92,16 @@ type envInfoFetchedMsg struct {
 }
 
 type identitySubmittedMsg struct {
+	err error
+}
+
+type localUsersLoadedMsg struct {
+	users []LocalUser
+	err   error
+}
+
+type passwordVerifiedMsg struct {
+	ok  bool
 	err error
 }
 
@@ -105,16 +121,25 @@ func initialModel(client *APIClient) model {
 	npm.Width = 40
 	npm.PromptStyle = lipgloss.NewStyle().Foreground(accent)
 
+	pw := textinput.New()
+	pw.Placeholder = "Password"
+	pw.CharLimit = 100
+	pw.Width = 40
+	pw.EchoMode = textinput.EchoPassword
+	pw.EchoCharacter = '•'
+	pw.PromptStyle = lipgloss.NewStyle().Foreground(accent)
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
 	return model{
-		client:    client,
-		state:     screenLoading,
-		inputNama: nama,
-		inputNPM:  npm,
-		spin:      sp,
+		client:        client,
+		state:         screenLoading,
+		inputNama:     nama,
+		inputNPM:      npm,
+		inputPassword: pw,
+		spin:          sp,
 	}
 }
 
@@ -136,6 +161,20 @@ func submitIdentityCmd(client *APIClient, nama, npm string) tea.Cmd {
 	}
 }
 
+func loadLocalUsersCmd() tea.Cmd {
+	return func() tea.Msg {
+		users, err := listLocalUsers()
+		return localUsersLoadedMsg{users: users, err: err}
+	}
+}
+
+func verifyPasswordCmd(username, password string) tea.Cmd {
+	return func() tea.Msg {
+		ok, err := verifyLocalPassword(username, password)
+		return passwordVerifiedMsg{ok: ok, err: err}
+	}
+}
+
 // ==================== UPDATE ====================
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -154,8 +193,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			// shouldContinueToShell TETAP false di sini -> main() akan
-			// menutup sesi, BUKAN melanjutkan ke shell.
+			// shouldContinueToShell TETAP false -> main() menutup sesi,
+			// tidak pernah lanjut ke shell, dari state manapun.
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
@@ -180,8 +219,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Sukses (baik pengisian baru maupun verifikasi identitas yang
-		// cocok) -> baru di sini flag diizinkan lanjut ke shell.
+		// Identifikasi berhasil -> lanjut ke pemilihan user Linux, BUKAN
+		// langsung ke shell. Baca daftar user lokal dulu.
+		m.state = screenSelectUser
+		return m, loadLocalUsersCmd()
+
+	case localUsersLoadedMsg:
+		if msg.err != nil {
+			m.state = screenError
+			m.errMsg = msg.err.Error()
+			return m, nil
+		}
+		m.localUsers = msg.users
+		m.userCursor = 0
+		return m, nil
+
+	case passwordVerifiedMsg:
+		if msg.err != nil {
+			m.state = screenError
+			m.errMsg = msg.err.Error()
+			return m, nil
+		}
+		if !msg.ok {
+			m.pwError = "Password salah, coba lagi."
+			m.inputPassword.SetValue("")
+			return m, nil
+		}
+		// Password cocok -> BARU di sini flag diizinkan lanjut ke shell.
 		m.shouldContinueToShell = true
 		return m, tea.Quit
 	}
@@ -194,10 +258,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenDashboard:
 		if msg.String() == "enter" {
-			// Selalu minta identifikasi/verifikasi, TIDAK ADA jalan pintas
-			// otomatis lolos walau environment ini sudah pernah diisi
-			// sebelumnya — praktikan lain yang menggunakan PC yang sama
-			// wajib gagal verifikasi kalau NPM-nya berbeda.
+			// Selalu minta identifikasi/verifikasi, tidak ada jalan pintas
+			// otomatis lolos walau environment ini sudah pernah diisi.
 			m.state = screenInputNama
 			m.inputNama.Focus()
 		}
@@ -229,6 +291,42 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputNPM, cmd = m.inputNPM.Update(msg)
 		return m, cmd
 
+	case screenSelectUser:
+		if len(m.localUsers) == 0 {
+			return m, nil
+		}
+		switch msg.String() {
+		case "up", "k":
+			if m.userCursor > 0 {
+				m.userCursor--
+			}
+		case "down", "j":
+			if m.userCursor < len(m.localUsers)-1 {
+				m.userCursor++
+			}
+		case "enter":
+			m.selectedUsername = m.localUsers[m.userCursor].Username
+			m.pwError = ""
+			m.inputPassword.SetValue("")
+			m.inputPassword.Focus()
+			m.state = screenLocalPassword
+		}
+		return m, nil
+
+	case screenLocalPassword:
+		if msg.String() == "enter" && m.inputPassword.Value() != "" {
+			password := m.inputPassword.Value()
+			return m, verifyPasswordCmd(m.selectedUsername, password)
+		}
+		if msg.String() == "esc" {
+			m.state = screenSelectUser
+			m.pwError = ""
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.inputPassword, cmd = m.inputPassword.Update(msg)
+		return m, cmd
+
 	case screenError:
 		if msg.String() == "enter" {
 			m.state = screenLoading
@@ -244,9 +342,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ==================== VIEW ====================
 
-// renderBox membungkus konten dalam box bergaya, dengan lebar yang
-// menyesuaikan ukuran terminal (responsive) dan diposisikan di tengah layar
-// kalau ukuran terminal sudah diketahui.
 func (m model) renderBox(content string) string {
 	width := 56
 	if m.windowWidth > 0 {
@@ -302,6 +397,24 @@ func (m model) View() string {
 	case screenSubmitting:
 		return m.renderBox(fmt.Sprintf("%s Memverifikasi identitas...", m.spin.View()))
 
+	case screenSelectUser:
+		return m.renderBox(m.viewSelectUser())
+
+	case screenLocalPassword:
+		errLine := ""
+		if m.pwError != "" {
+			errLine = "\n" + errStyle.Render(m.pwError) + "\n"
+		}
+		return m.renderBox(fmt.Sprintf(
+			"%s\n\n%s %s\n\n%s\n%s\n%s\n%s",
+			titleStyle.Render("Masuk sebagai "+m.selectedUsername),
+			labelStyle.Render("User:"), valueStyle.Render(m.selectedUsername),
+			m.inputPassword.View(),
+			errLine,
+			hintStyle.Render("[Enter] masuk  •  [Esc] ganti user  •  [Ctrl+C] batal"),
+			"",
+		))
+
 	case screenError:
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
@@ -341,24 +454,43 @@ func (m model) viewDashboard() string {
 	return body
 }
 
+func (m model) viewSelectUser() string {
+	if len(m.localUsers) == 0 {
+		return fmt.Sprintf("%s Memuat daftar user...", m.spin.View())
+	}
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Masuk Sebagai"))
+	b.WriteString("\n\n")
+
+	for i, u := range m.localUsers {
+		if i == m.userCursor {
+			b.WriteString(cursorStyle.Render("› " + u.Username))
+		} else {
+			b.WriteString(menuItemDim.Render("  " + u.Username))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("[↑/↓] pilih  •  [Enter] konfirmasi  •  [Ctrl+C] batal"))
+	return b.String()
+}
+
 // ==================== MAIN ====================
 
 // getContainerEnv membaca env var yang di-inject LXD lewat
-// "lxc config set <container> environment.KEY=value". Env var semacam ini
-// hanya "menempel" pada proses init container (PID 1) — proses yang
-// dijalankan lewat SSH login (lewat PAM) mendapat environment yang bersih
-// dan TIDAK otomatis mewarisi env var itu. Makanya os.Getenv() saja tidak
-// cukup; kita perlu baca langsung dari /proc/1/environ sebagai fallback.
+// "lxc config set <container> environment.KEY=value". Fallback ke
+// /proc/1/environ karena env var itu tidak diwariskan ke sesi SSH secara
+// otomatis — lihat dokumentasi TUI § 4.3.
 func getContainerEnv(key string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-
 	data, err := os.ReadFile("/proc/1/environ")
 	if err != nil {
 		return ""
 	}
-
 	for _, entry := range strings.Split(string(data), "\x00") {
 		if strings.HasPrefix(entry, key+"=") {
 			return strings.TrimPrefix(entry, key+"=")
@@ -388,28 +520,24 @@ func main() {
 
 	m := finalModel.(model)
 
-	// Titik keputusan tunggal: HANYA lanjut ke shell kalau alur identifikasi
-	// benar-benar selesai sukses. Ctrl+C kapan pun (di layar manapun) akan
-	// selalu berakhir di sini dengan shouldContinueToShell == false.
 	if !m.shouldContinueToShell {
 		fmt.Println("Sesi ditutup.")
 		os.Exit(0)
 	}
 
-	execShell()
+	execAsUser(m.selectedUsername)
 }
 
-// execShell menggantikan proses TUI dengan shell login user, seperti proses
-// TUI "tidak pernah ada" begitu praktikan lanjut ke sesi kerja normal.
-func execShell() {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-
+// execAsUser menggantikan proses TUI dengan sesi login sebagai user Linux
+// yang dipilih. Memakai "login -f" (force, tanpa password lagi — karena
+// password SUDAH diverifikasi manual oleh TUI lewat /etc/shadow) daripada
+// "su", supaya sesi tercatat rapi di utmp/wtmp seperti login normal.
+// TUI selalu jalan sebagai root (lihat keputusan desain project), jadi
+// "login -f" ini valid dijalankan untuk user manapun, termasuk root sendiri.
+func execAsUser(username string) {
 	env := os.Environ()
-	if err := syscall.Exec(shell, []string{shell, "-l"}, env); err != nil {
-		fmt.Fprintln(os.Stderr, "Gagal membuka shell:", err)
+	if err := syscall.Exec("/bin/login", []string{"login", "-f", username}, env); err != nil {
+		fmt.Fprintln(os.Stderr, "Gagal masuk sebagai", username, ":", err)
 		os.Exit(1)
 	}
 }
