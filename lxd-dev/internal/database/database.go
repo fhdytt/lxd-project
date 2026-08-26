@@ -8,20 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NewPool membuat connection pool ke PostgreSQL menggunakan pgx.
-//
-// Connection pooling penting di sini karena backend ini akan dipanggil oleh
-// banyak container TUI secara bersamaan (bisa ratusan saat jam praktikum
-// ramai) — tanpa pooling, tiap request akan buka-tutup koneksi baru yang
-// mahal dari sisi resource dan latency.
+// NewPool membuat connection pool ke PostgreSQL menggunakan pgx
 func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("gagal parse DATABASE_URL: %w", err)
 	}
 
-	// Batas pool disesuaikan untuk skala menengah (4 ruangan x ~50 praktikan).
-	// Angka ini bisa dituning lagi setelah observasi beban produksi nyata.
+	// Batas pool disesuaikan untuk skala beban
 	poolConfig.MaxConns = 20
 	poolConfig.MinConns = 2
 	poolConfig.MaxConnLifetime = time.Hour
@@ -32,7 +26,7 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("gagal membuat connection pool: %w", err)
 	}
 
-	// Pastikan koneksi beneran hidup sebelum aplikasi dianggap siap menerima trafik.
+	// Pastikan koneksi beneran hidup sebelum aplikasi berjalan
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := pool.Ping(pingCtx); err != nil {
