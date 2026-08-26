@@ -2,6 +2,9 @@
 
 Sistem informasi manajemen environment linux berbasis container (LXD) untuk kebutuhan praktikum. Menyediakan environment Linux terisolasi per praktikan, dapat diakses lewat SSH, dengan identifikasi otomatis lewat dashboard terminal (TUI), dan dikelola lewat web dashboard.
 
+## Login SSH
+<img src="docs/assets/img/documentation.gif" width="80%" />
+
 ## Diagram Arsitektur
 
 ```
