@@ -31,3 +31,7 @@ satu lab harus menyediakan environment Linux yang terisolasi untuk menjalankan b
 - **Backend:** Go, PostgreSQL
 - **TUI:** Go + Bubble Tea
 - **Deployment:** 1 server fisik on-premise, semua service native di host
+
+## Download ISO
+Berikut ISO Ubuntu :
+[Ubuntu Server](https://drive.google.com/drive/folders/1zK5kfMn1Zh2HF2cVfXMnEeplVNmxMHCf?usp=sharing)
