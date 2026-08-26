@@ -15,10 +15,6 @@ import (
 	"lxd-dev/internal/repository"
 )
 
-// main sengaja dibuat setipis mungkin — cuma "merakit" komponen (wiring),
-// tidak ada logic bisnis di sini. Logic sesungguhnya ada di masing-masing
-// package internal/. Pola ini memudahkan testing tiap komponen secara
-// terpisah tanpa harus menjalankan seluruh aplikasi.
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
@@ -53,10 +49,7 @@ func run() error {
 		Addr:    ":" + cfg.Port,
 		Handler: router,
 
-		// Timeout eksplisit di semua sisi — mencegah satu koneksi lambat/macet
-		// (misal TUI di container yang jaringannya bermasalah) menahan resource
-		// server tanpa batas waktu. Penting untuk efisiensi resource saat
-		// banyak container memanggil API bersamaan.
+		// Timeout eksplisit untuk mencegah satu koneksi lambat/macet
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -75,7 +68,7 @@ func run() error {
 		return err
 
 	case <-ctx.Done():
-		slog.Info("menerima sinyal shutdown, mematikan server dengan graceful...")
+		slog.Info("menerima sinyal shutdown, mematikan server.....")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

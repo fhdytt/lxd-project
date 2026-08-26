@@ -16,19 +16,22 @@ type contextKey string
 
 const environmentContextKey contextKey = "environment"
 
-// HashToken mengubah token plaintext (yang dikirim TUI) menjadi hash SHA-256
-// heksadesimal, format yang sama seperti yang disimpan di kolom
-// environments.api_token_hash. SHA-256 dipilih (bukan bcrypt) karena token
-// ini bukan password manusia — kita butuh lookup cepat dan deterministik
-// langsung lewat query database, bukan hash lambat anti-brute-force.
+/*
+ HashToken mengubah token plaintext menjadi hash SHA-256
+ heksadesimal,SHA-256 dipilih karena token
+ ini bukan password manusia, kita memerlukan lookup cepat dan deterministik
+ langsung lewat query database.
+*/
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
-// Auth adalah middleware yang memvalidasi header "Authorization: Bearer <token>",
-// mencari environment yang cocok, lalu menyisipkan detail environment tersebut
-// ke context request supaya handler berikutnya tidak perlu query ulang.
+/*
+ Auth merupakan middleware yang memvalidasi header "Authorization: Bearer <token>",
+ mencari environment yang cocok, lalu menyisipkan detail environment tersebut
+ ke context request supaya handler berikutnya tidak perlu query ulang.
+*/
 func Auth(repo *repository.EnvironmentRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,9 +57,10 @@ func Auth(repo *repository.EnvironmentRepository) func(http.Handler) http.Handle
 	}
 }
 
-// EnvironmentFromContext mengambil environment yang sudah divalidasi middleware
-// Auth. Handler HARUS berada di belakang middleware Auth, kalau tidak akan
-// mengembalikan ok=false.
+/*
+  EnvironmentFromContext mengambil environment yang sudah divalidasi middlewareAuth. 
+  Handler HARUS berada di belakang middleware Auth
+*/
 func EnvironmentFromContext(ctx context.Context) (*models.EnvironmentDetail, bool) {
 	env, ok := ctx.Value(environmentContextKey).(*models.EnvironmentDetail)
 	return env, ok

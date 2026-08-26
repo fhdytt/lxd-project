@@ -2,8 +2,10 @@ package models
 
 import "time"
 
-// EnvironmentDetail adalah gabungan data environment + sesi + ruangan + modul,
-// hasil JOIN, persis yang dibutuhkan TUI untuk ditampilkan di dashboard.
+/*
+ EnvironmentDetail adalah gabungan data environment + sesi + ruangan + modul,
+ hasil JOIN, persis yang dibutuhkan TUI untuk ditampilkan di dashboard.
+*/
 type EnvironmentDetail struct {
 	ID                string    `json:"-"`
 	ContainerName     string    `json:"container_name"`

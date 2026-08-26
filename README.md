@@ -24,13 +24,10 @@ Sistem informasi manajemen environment linux berbasis container (LXD) untuk kebu
 
 ## Ringkasan Cepat
 
-**Masalah yang diselesaikan:** satu lab harus menyediakan environment Linux terisolasi untuk banyak praktikan sekaligus (4 ruangan, <50 praktikan/ruangan), tanpa asisten lab harus setup/reset manual satu per satu, dan tanpa konfigurasi antar praktikan saling mengganggu.
+satu lab harus menyediakan environment Linux yang terisolasi untuk menjalankan banyak praktikan sekaligus, tanpa setup/reset manual satu per satu, dan tanpa konfigurasi antar praktikan saling mengganggu.
 
 **Stack:**
 - **Infrastruktur:** LXD (container), ZFS (storage, snapshot-based reset)
-- **Backend:** Go (`net/http` + `pgx`), PostgreSQL
+- **Backend:** Go, PostgreSQL
 - **TUI:** Go + Bubble Tea
-- **Web dashboard:** HTML + HTMX + Tailwind CSS (rencana, belum dikerjakan)
 - **Deployment:** 1 server fisik on-premise, semua service native di host
-
-**Status saat ini:** infrastruktur LXD, database, API backend, dan TUI sudah tervalidasi jalan end-to-end (SSH login → dashboard → identifikasi → tersimpan di database) untuk modul `netbegin`. Modul `netadmin` masih perlu dipasangi TUI. Web dashboard belum dikerjakan.

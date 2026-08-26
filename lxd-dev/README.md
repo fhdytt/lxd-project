@@ -7,6 +7,7 @@
 ```
 lxd-dev/
 ├── go.mod
+├── go.sum
 ├── .env.example
 ├── README.md
 ├── cmd/
@@ -14,11 +15,11 @@ lxd-dev/
 │       └── main.go                     # entrypoint
 └── internal/
     ├── config/
-    │   └── config.go                   # baca konfigurasi dari environment variable
+    │   └── config.go                   # konfigurasi dari environment variable
     ├── database/
-    │   └── database.go                 # connection pool PostgreSQL (pgx)
+    │   └── database.go                 # connection pool PostgreSQL
     ├── models/
-    │   └── environment.go              # struct data (DTO)
+    │   └── environment.go              # struct data
     ├── repository/
     │   └── environment_repository.go   # semua query SQL
     ├── middleware/
@@ -28,13 +29,7 @@ lxd-dev/
         └── router.go                   # routing + logging middleware
 ```
 
-**Alasan struktur ini:**
-
-- **`cmd/` vs `internal/`** — konvensi standar komunitas Go. `cmd/` isinya entrypoint tipis untuk tiap binary yang mau dibangun (kalau nanti ada binary lain, misal CLI admin, tinggal tambah `cmd/cli/main.go`). `internal/` isinya kode privat aplikasi yang tidak boleh diimpor project Go lain di luar module ini.
-- **Repository terpisah dari handler** — query SQL tidak bercampur dengan logic HTTP. Kalau nanti web dashboard butuh fungsi yang sama, tinggal panggil ulang method repository yang sama, tidak perlu duplikasi query.
-- **Middleware terpisah** — validasi token dipakai di banyak endpoint, ditulis sekali, tinggal "dibungkus" ke handler mana saja yang butuh.
-
-## 5.2 Keputusan Teknis & Alasannya
+## Keputusan Teknis & Alasannya
 
 | Keputusan | Alasan |
 |---|---|
@@ -167,9 +162,3 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
-
-## 5.6 Yang Belum Diimplementasi
-
-- Endpoint untuk web dashboard admin/asisten (list environment, kontrol start/stop/reset).
-- Endpoint provisioning (integrasi langsung ke LXD API, menggantikan `kelola-lxd.sh`).
-- Otentikasi admin (login web dashboard — tabel `admins` di database sudah ada, logic-nya belum ditulis).

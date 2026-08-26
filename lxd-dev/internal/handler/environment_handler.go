@@ -20,8 +20,6 @@ func NewEnvironmentHandler(repo *repository.EnvironmentRepository) *EnvironmentH
 }
 
 // GetMe menangani GET /api/v1/environments/me
-// Environment yang relevan sudah diambil oleh middleware Auth, handler ini
-// tinggal serialize ke JSON.
 func (h *EnvironmentHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	env, ok := middleware.EnvironmentFromContext(r.Context())
 	if !ok {
@@ -57,12 +55,7 @@ func (h *EnvironmentHandler) Identify(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 
 	case errors.Is(err, repository.ErrIdentityMismatch):
-		// Environment ini sudah terdaftar milik praktikan lain, dan
-		// nama/NPM yang di-submit sekarang tidak cocok. Ini KEAMANAN,
-		// bukan sekadar info — mencegah orang lain mengklaim akses ke
-		// environment yang bukan miliknya.
 		http.Error(w, "nama/NPM tidak cocok dengan environment ini", http.StatusForbidden)
-
 	default:
 		slog.Error("gagal menyimpan identifikasi praktikan", "error", err, "environment_id", env.ID)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
