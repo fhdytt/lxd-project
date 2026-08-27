@@ -127,7 +127,7 @@ Praktikan tekan Enter → TETAP diminta isi Nama + NPM
 Submit npm yang SAMA dengan yang tercatat sebelumnya
         │
         ▼
-API: praktikan_id sudah ada → bandingkan npm → COCOK
+API: praktikan_id sudah ada → bandingkan nama DAN npm → KEDUANYA COCOK
         │
         ▼
 Response 200 { "success": true } (tidak ada data yang diubah)
@@ -136,10 +136,10 @@ Response 200 { "success": true } (tidak ada data yang diubah)
 TUI: exec ke $SHELL — praktikan lanjut kerja normal
 ```
 
-### Skenario B — Orang lain mencoba login ke environment yang bukan miliknya
+### Skenario B — Orang lain mencoba login pakai NPM & nama miliknya sendiri
 
 ```
-Orang lain (misal teman sekelas, tahu password root) SSH login
+Orang lain (misal teman sekelas) SSH login
 ke environment yang SUDAH dimiliki praktikan lain
         │
         ▼
@@ -149,10 +149,10 @@ TUI fetch /environments/me → already_identified = true
 Tekan Enter → diminta isi Nama + NPM
         │
         ▼
-Submit NPM milik DIA SENDIRI (bukan NPM pemilik environment ini)
+Submit nama + NPM milik DIA SENDIRI (bukan milik pemilik environment ini)
         │
         ▼
-API: praktikan_id sudah ada → bandingkan npm → TIDAK COCOK
+API: praktikan_id sudah ada → bandingkan nama & npm → KEDUANYA TIDAK COCOK
         │
         ▼
 Response 403 Forbidden — ErrIdentityMismatch
@@ -162,7 +162,30 @@ TUI: screenError, pesan "Environment ini sudah terdaftar
      atas nama praktikan lain" — TIDAK exec ke shell
 ```
 
-> **Catatan tentang reset:** ini berlaku selama environment yang sama belum di-reset (`reset`/`reset-room`) atau dihapus (`stop`). Reset environment **tidak** menyentuh database — row `environments` dan `praktikan_id` tetap sama seperti sebelum reset (hanya isi container yang dikembalikan lewat ZFS snapshot). Artinya environment yang sudah pernah diisi **tetap terkunci** ke NPM yang sama walau sudah direset, konsisten dengan tujuan anti-pinjam-PC. **Ini belum tentu perilaku yang diinginkan untuk semua kasus** (misal praktikan pindah kelas/ruangan) — lihat catatan terbuka di [Log Perkembangan](09-progress-log.md).
+### Skenario C — Tahu NPM orang lain, tapi mengarang nama (celah yang pernah ada, sekarang tertutup)
+
+```
+Orang lain TAHU NPM pemilik environment ini (NPM biasanya
+bukan rahasia di satu kelas), tapi TIDAK tahu nama persis
+yang tercatat
+        │
+        ▼
+Submit NPM asli pemilik + nama sembarang/karangan
+        │
+        ▼
+API: bandingkan npm → COCOK
+     bandingkan nama → TIDAK COCOK
+        │
+        ▼
+Karena nama tidak cocok → Response 403 Forbidden
+        │
+        ▼
+TUI: TIDAK exec ke shell
+```
+
+> **Riwayat bug:** versi awal implementasi § 5.4a di backend cuma membandingkan NPM, mengabaikan nama sama sekali — sehingga Skenario C ini dulu **berhasil tembus** (NPM cocok saja sudah dianggap lolos). Ini sudah diperbaiki; sekarang nama dan NPM **wajib cocok keduanya**. Detail lengkap ada di [API Backend § 5.4b](05-api-backend.md#54b-bug-verifikasi-sempat-hanya-mengecek-npm-nama-diabaikan) dan [Troubleshooting](08-troubleshooting.md#835-verifikasi-identitas-hanya-mengecek-npm-nama-diabaikan).
+
+> **Catatan tentang reset:** ini berlaku selama environment yang sama belum di-reset (`reset`/`reset-room`) atau dihapus (`stop`). Reset environment **tidak** menyentuh database — row `environments` dan `praktikan_id` tetap sama seperti sebelum reset (hanya isi container yang dikembalikan lewat ZFS snapshot). Artinya environment yang sudah pernah diisi **tetap terkunci** ke nama+NPM yang sama walau sudah direset, konsisten dengan tujuan anti-pinjam-PC. **Ini belum tentu perilaku yang diinginkan untuk semua kasus** (misal praktikan pindah kelas/ruangan) — lihat catatan terbuka di [Log Perkembangan](09-progress-log.md).
 
 ## 6.4 Fase Reset Environment
 

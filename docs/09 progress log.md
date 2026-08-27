@@ -24,6 +24,8 @@ Riwayat pengerjaan project dari awal sampai kondisi terkini, berurutan.
 | 16 | Fix bug pembacaan env var (fallback `/proc/1/environ`) dan urutan `lxc config set` vs `lxc start` | ✅ Selesai |
 | 17 | Testing SSH sungguhan end-to-end: login → dashboard TUI → identifikasi → shell | ✅ **Berhasil** |
 | 17a | Perbaikan TUI: verifikasi identitas wajib (anti pinjam-PC), fix bug Ctrl+C lanjut ke shell, tampilan responsive + spinner (ringan, tanpa dependency baru) | ✅ Selesai |
+| 17b | Fix bug database: `FOR UPDATE cannot be applied to the nullable side of an outer join` pada query verifikasi identitas | ✅ Selesai |
+| 17c | Fix bug keamanan: verifikasi identitas sempat hanya mengecek NPM (nama diabaikan) — sekarang wajib nama DAN NPM cocok keduanya | ✅ Selesai |
 | 18 | Pasang TUI ke `master-netadmin` | ⬜ Belum dimulai |
 | 19 | Endpoint provisioning permanen di Go backend (menggantikan bagian database di `kelola-lxd.sh`) | ⬜ Belum dimulai |
 | 20 | Web dashboard admin/asisten (HTML+HTMX+Tailwind) | ⬜ Belum dimulai |

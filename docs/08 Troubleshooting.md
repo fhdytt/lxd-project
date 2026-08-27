@@ -139,6 +139,44 @@ lxc exec <container> -- cat /proc/1/environ | tr '\0' '\n' | grep PRAKTIKUM
 
 **Solusi:** ikuti urutan diagnosis dari dalam ke luar — test `curl localhost` di server dulu, baru `ufw`, baru akses dari luar. Detail langkah lengkap ada di riwayat pengerjaan project.
 
+### 8.3.4 `FOR UPDATE cannot be applied to the nullable side of an outer join`
+
+**Gejala:** TUI menampilkan `Terjadi Kesalahan: gagal mengirim data: internal server error` saat submit nama+NPM. Log API menunjukkan:
+```
+ERROR: FOR UPDATE cannot be applied to the nullable side of an outer join (SQLSTATE 0A000)
+```
+
+**Penyebab:** query verifikasi identitas (lihat [API § 5.4a](05-api-backend.md#54a-verifikasi-identitas)) memakai `LEFT JOIN praktikan p ON ...` supaya tetap dapat baris `environments` walau `praktikan_id` masih `NULL`, digabung dengan `FOR UPDATE` polos di akhir query. PostgreSQL **tidak mengizinkan** mengunci baris (`FOR UPDATE`) di sisi *nullable* dari outer join (di sini tabel `praktikan`), karena secara logis tidak jelas baris mana yang mau dikunci kalau sisi itu memang kosong.
+
+**Solusi:** batasi eksplisit `FOR UPDATE` hanya ke tabel `environments`:
+```sql
+SELECT p.npm, p.nama
+FROM environments e
+LEFT JOIN praktikan p ON p.id = e.praktikan_id
+WHERE e.id = $1
+FOR UPDATE OF e
+```
+`FOR UPDATE OF e` (bukan `FOR UPDATE` saja) memberitahu PostgreSQL untuk hanya mengunci baris `environments`, membiarkan sisi `praktikan` yang nullable tidak ikut dikunci.
+
+### 8.3.5 Verifikasi identitas hanya mengecek NPM, nama diabaikan
+
+**Gejala:** login dengan NPM yang sudah terdaftar tapi **nama berbeda** tetap berhasil lolos ke shell — padahal seharusnya ditolak. Sebaliknya, NPM berbeda dengan nama yang sudah benar tetap ditolak dengan benar (perilaku ini sendiri sudah sesuai).
+
+**Penyebab:** implementasi awal fitur verifikasi identitas ([§ 4.3a](04-tui-praktikan.md#43a-verifikasi-identitas-wajib-anti-pinjam-pc)) di sisi backend cuma membandingkan `npm` yang di-submit dengan yang sudah tercatat — variabel `nama` yang dikirim TUI sama sekali tidak diperiksa saat environment sudah pernah diisi. Query pengecekannya pun awalnya cuma mengambil `p.npm`, tidak ikut mengambil `p.nama`.
+
+**Dampak keamanan:** NPM biasanya bukan informasi rahasia di satu kelas (teman sekelas gampang saling tahu NPM), jadi siapapun yang tahu NPM orang lain bisa masuk ke environment itu tinggal mengarang nama sembarang — persis celah yang seharusnya ditutup fitur ini. Detail skenario lengkap ada di [Alur End-to-End § 6.3 Skenario C](06-alur-end-to-end.md#skenario-c--tahu-npm-orang-lain-tapi-mengarang-nama-celah-yang-pernah-ada-sekarang-tertutup).
+
+**Solusi:** query diubah mengambil `p.npm` **dan** `p.nama` sekaligus, validasi mensyaratkan **keduanya** cocok:
+```go
+npmMatch := *existingNPM == npm
+namaMatch := strings.EqualFold(strings.TrimSpace(*existingNama), strings.TrimSpace(nama))
+
+if !npmMatch || !namaMatch {
+    return ErrIdentityMismatch
+}
+```
+Perbandingan nama dibuat case-insensitive dan trim spasi, supaya variasi kapitalisasi kecil (misal "budi" vs "Budi") tidak membuat praktikan asli malah terkunci. Detail lengkap ada di [API § 5.4b](05-api-backend.md#54b-bug-verifikasi-sempat-hanya-mengecek-npm-nama-diabaikan).
+
 ## 8.4 Kesalahan Operasional Umum (Bukan Bug Kode)
 
 ### 8.4.1 Command tergabung jadi satu baris
