@@ -23,7 +23,7 @@ const (
 	screenInputNama
 	screenInputNPM
 	screenSubmitting
-	screenSelectUser   // NEW: pilih mau login sebagai user Linux apa
+	screenSelectUser    // NEW: pilih mau login sebagai user Linux apa
 	screenLocalPassword // NEW: masukkan password akun Linux yang dipilih
 	screenError
 )
@@ -46,42 +46,87 @@ type model struct {
 	inputPassword textinput.Model
 	spin          spinner.Model
 
-	localUsers  []LocalUser
-	userCursor  int
-	pwError     string
+	localUsers []LocalUser
+	userCursor int
+	pwError    string
 
 	windowWidth  int
 	windowHeight int
 }
 
-// ==================== STYLES ====================
+// ==================== STYLES (DISESUAIKAN) ====================
 
 var (
-	accent    = lipgloss.Color("39")
-	accentDim = lipgloss.Color("245")
-	danger    = lipgloss.Color("203")
-	muted     = lipgloss.Color("241")
+	// Palet Hex Earthy
+	bgDark    = lipgloss.Color("#344e41")
+	bgMid     = lipgloss.Color("#3a5a40")
+	accent    = lipgloss.Color("#588157")
+	textSoft  = lipgloss.Color("#a3b18a")
+	textLight = lipgloss.Color("#dad7cd")
+	danger    = lipgloss.Color("#e63946")
 
+	// Logo Style & ASCII Art Tegak
+	logoStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(accent)
+
+	asciiLogo = `
+  _        ______  ____   _  __   ____    __  ___ 
+ | |      / ____/ / __ \ | |/ /  / __ \  /  |/  / 
+ | |     / /___  / /_/ / | ' /  / / / / / /|_/ /  
+ | |___ / /___  / ____/  | . \ / /_/ / / /  / /   
+ |_____/_____/ /_/       |_|\_\\____/ /_/  /_/    
+                                                  
+              G U N A D A R M A                   
+`
+
+	// Component Styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(accent).
+			Foreground(textLight).
+			Background(bgDark).
 			Padding(0, 1)
 
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(accentDim).
+			Foreground(textSoft).
 			Italic(true)
 
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(accent).
-			Padding(1, 3)
+			Padding(1, 2)
 
-	labelStyle   = lipgloss.NewStyle().Foreground(accentDim)
-	valueStyle   = lipgloss.NewStyle().Bold(true)
-	hintStyle    = lipgloss.NewStyle().Foreground(muted).Italic(true)
-	errStyle     = lipgloss.NewStyle().Foreground(danger).Bold(true)
-	cursorStyle  = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	menuItemDim  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	labelStyle = lipgloss.NewStyle().
+			Foreground(textSoft)
+
+	valueStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(textLight)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(textSoft).
+			Italic(true)
+
+	errStyle = lipgloss.NewStyle().
+			Foreground(danger).
+			Bold(true)
+
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(textLight).
+			Bold(true)
+
+	selectedItemStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(textLight).
+				Background(accent).
+				Padding(0, 1)
+
+	inactiveItemStyle = lipgloss.NewStyle().
+				Foreground(textSoft).
+				Padding(0, 1)
+
+	dividerStyle = lipgloss.NewStyle().
+			Foreground(accent)
 )
 
 // ==================== MESSAGES ====================
@@ -340,7 +385,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ==================== VIEW ====================
+// ==================== VIEW (TAMPILAN BARU) ====================
 
 func (m model) renderBox(content string) string {
 	width := 56
@@ -354,7 +399,9 @@ func (m model) renderBox(content string) string {
 		}
 	}
 
-	box := boxStyle.Width(width).Render(content)
+	// Render logo di bagian paling atas untuk semua layar
+	fullContent := fmt.Sprintf("%s\n%s", logoStyle.Render(asciiLogo), content)
+	box := boxStyle.Width(width).Render(fullContent)
 
 	if m.windowWidth > 0 && m.windowHeight > 0 {
 		return lipgloss.Place(m.windowWidth, m.windowHeight, lipgloss.Center, lipgloss.Center, box)
@@ -377,21 +424,23 @@ func (m model) View() string {
 			hint = "Environment ini sudah terdaftar. Masukkan nama untuk verifikasi:"
 		}
 		return m.renderBox(fmt.Sprintf(
-			"%s\n\n%s\n%s\n\n%s",
-			titleStyle.Render("Identifikasi Praktikan"),
+			"%s\n\n%s\n%s\n\n%s\n%s",
+			titleStyle.Render(" IDENTIFIKASI PRAKTIKAN "),
 			labelStyle.Render(hint),
 			m.inputNama.View(),
-			hintStyle.Render("[Enter] lanjut  •  [Ctrl+C] batal"),
+			dividerStyle.Render(strings.Repeat("─", 50)),
+			hintStyle.Render("[Enter] Lanjut  |  [Ctrl+C] Batal"),
 		))
 
 	case screenInputNPM:
 		return m.renderBox(fmt.Sprintf(
-			"%s\n\n%s %s\n\n%s\n%s\n\n%s",
-			titleStyle.Render("Identifikasi Praktikan"),
+			"%s\n\n%s %s\n\n%s\n%s\n\n%s\n%s",
+			titleStyle.Render(" IDENTIFIKASI PRAKTIKAN "),
 			labelStyle.Render("Nama:"), valueStyle.Render(m.inputNama.Value()),
 			labelStyle.Render("Masukkan NPM:"),
 			m.inputNPM.View(),
-			hintStyle.Render("[Enter] kirim  •  [Esc] kembali  •  [Ctrl+C] batal"),
+			dividerStyle.Render(strings.Repeat("─", 50)),
+			hintStyle.Render("[Enter] Kirim  |  [Esc] Kembali  |  [Ctrl+C] Batal"),
 		))
 
 	case screenSubmitting:
@@ -406,21 +455,22 @@ func (m model) View() string {
 			errLine = "\n" + errStyle.Render(m.pwError) + "\n"
 		}
 		return m.renderBox(fmt.Sprintf(
-			"%s\n\n%s %s\n\n%s\n%s\n%s\n%s",
-			titleStyle.Render("Masuk sebagai "+m.selectedUsername),
+			"%s\n\n%s %s\n\n%s\n%s%s\n%s",
+			titleStyle.Render(" MASUK SEBAGAI "+strings.ToUpper(m.selectedUsername)+" "),
 			labelStyle.Render("User:"), valueStyle.Render(m.selectedUsername),
 			m.inputPassword.View(),
 			errLine,
-			hintStyle.Render("[Enter] masuk  •  [Esc] ganti user  •  [Ctrl+C] batal"),
-			"",
+			dividerStyle.Render(strings.Repeat("─", 50)),
+			hintStyle.Render("[Enter] Masuk  |  [Esc] Ganti User  |  [Ctrl+C] Batal"),
 		))
 
 	case screenError:
 		return m.renderBox(fmt.Sprintf(
-			"%s\n\n%s\n\n%s",
-			errStyle.Render("⚠ Terjadi Kesalahan"),
+			"%s\n\n%s\n\n%s\n%s",
+			errStyle.Render("[ ERROR SYSTEM ]"),
 			m.errMsg,
-			hintStyle.Render("[Enter] coba lagi  •  [Ctrl+C] keluar"),
+			dividerStyle.Render(strings.Repeat("─", 50)),
+			hintStyle.Render("[Enter] Coba lagi  |  [Ctrl+C] Keluar"),
 		))
 	}
 	return ""
@@ -434,11 +484,11 @@ func (m model) viewDashboard() string {
 		identStatus = lipgloss.NewStyle().Bold(true).Foreground(accent).Render("Sudah terdaftar (perlu verifikasi)")
 	}
 
-	divider := lipgloss.NewStyle().Foreground(muted).Render(strings.Repeat("─", 40))
+	divider := dividerStyle.Render(strings.Repeat("─", 50))
 
 	body := fmt.Sprintf(
-		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %d\n%s %s\n%s %s\n%s %s\n\n%s",
-		titleStyle.Render("📋 Dashboard Sesi Praktikum"),
+		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %d\n%s %s\n%s %s\n%s %s\n\n%s\n%s",
+		titleStyle.Render(" DASHBOARD SESI PRAKTIKUM "),
 		subtitleStyle.Render("Sistem Manajemen Environment Praktikum"),
 		divider,
 		labelStyle.Render("Kode Kursus  :"), valueStyle.Render(info.CourseCode),
@@ -448,7 +498,8 @@ func (m model) viewDashboard() string {
 		labelStyle.Render("Tanggal      :"), valueStyle.Render(info.SessionDate),
 		labelStyle.Render("Status Env   :"), valueStyle.Render(info.Status),
 		labelStyle.Render("Identifikasi :"), identStatus,
-		hintStyle.Render("[Enter] lanjutkan  •  [Ctrl+C] keluar"),
+		divider,
+		hintStyle.Render("[Enter] Lanjutkan  |  [Ctrl+C] Keluar"),
 	)
 
 	return body
@@ -460,29 +511,29 @@ func (m model) viewSelectUser() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Masuk Sebagai"))
+	b.WriteString(titleStyle.Render(" MASUK SEBAGAI "))
 	b.WriteString("\n\n")
 
 	for i, u := range m.localUsers {
 		if i == m.userCursor {
-			b.WriteString(cursorStyle.Render("› " + u.Username))
+			itemText := fmt.Sprintf("[-] %02d. %s", i+1, u.Username)
+			b.WriteString(selectedItemStyle.Render(itemText))
 		} else {
-			b.WriteString(menuItemDim.Render("  " + u.Username))
+			itemText := fmt.Sprintf("    %02d. %s", i+1, u.Username)
+			b.WriteString(inactiveItemStyle.Render(itemText))
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("[↑/↓] pilih  •  [Enter] konfirmasi  •  [Ctrl+C] batal"))
+	b.WriteString(dividerStyle.Render(strings.Repeat("─", 50)))
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("[UP/DOWN] Pilih  |  [ENTER] Konfirmasi  |  [CTRL+C] Batal"))
 	return b.String()
 }
 
 // ==================== MAIN ====================
 
-// getContainerEnv membaca env var yang di-inject LXD lewat
-// "lxc config set <container> environment.KEY=value". Fallback ke
-// /proc/1/environ karena env var itu tidak diwariskan ke sesi SSH secara
-// otomatis — lihat dokumentasi TUI § 4.3.
 func getContainerEnv(key string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -528,12 +579,6 @@ func main() {
 	execAsUser(m.selectedUsername)
 }
 
-// execAsUser menggantikan proses TUI dengan sesi login sebagai user Linux
-// yang dipilih. Memakai "login -f" (force, tanpa password lagi — karena
-// password SUDAH diverifikasi manual oleh TUI lewat /etc/shadow) daripada
-// "su", supaya sesi tercatat rapi di utmp/wtmp seperti login normal.
-// TUI selalu jalan sebagai root (lihat keputusan desain project), jadi
-// "login -f" ini valid dijalankan untuk user manapun, termasuk root sendiri.
 func execAsUser(username string) {
 	env := os.Environ()
 	if err := syscall.Exec("/bin/login", []string{"login", "-f", username}, env); err != nil {

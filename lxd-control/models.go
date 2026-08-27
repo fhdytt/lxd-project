@@ -6,8 +6,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ==================== STATE ====================
-
 type screenState int
 
 const (
@@ -27,7 +25,6 @@ const (
 	screenError
 )
 
-// model adalah state Bubble Tea tunggal untuk seluruh aplikasi lxd-control.
 type model struct {
 	cfg *Config
 	db  *pgxpool.Pool
@@ -36,7 +33,6 @@ type model struct {
 	errMsg string
 	spin   spinner.Model
 
-	// Menu generik: dipakai ulang di semua layar berbasis daftar pilihan.
 	menuItems  []string
 	menuCursor int
 
@@ -46,8 +42,8 @@ type model struct {
 
 	selectedRoom      string
 	selectedModule    string
-	selectedAction    string // "start" atau "stop"
-	selectedResetMode string // "room" atau "container"
+	selectedAction    string
+	selectedResetMode string
 	selectedContainer string
 
 	commandOutput string
@@ -63,33 +59,67 @@ func initialModel(cfg *Config, db *pgxpool.Pool) model {
 		cfg:       cfg,
 		db:        db,
 		state:     screenMainMenu,
-		menuItems: []string{"Lihat Daftar Environment", "Provisioning Ruangan", "Reset Environment", "Keluar"},
+		menuItems: []string{"View Environment List", "Room Setup", "Reset Environment", "Exit"},
 		spin:      sp,
 	}
 }
 
-// Init (bagian dari interface tea.Model) ada di commands.go, karena dia
-// men-trigger command async pertama kali (spinner tick).
-
 var (
-	accent      = lipgloss.Color("39")
-	danger      = lipgloss.Color("203")
-	success     = lipgloss.Color("42")
-	muted       = lipgloss.Color("241")
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(accent).Padding(0, 1)
-	boxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 3)
-	hintStyle   = lipgloss.NewStyle().Foreground(muted).Italic(true)
-	errStyle    = lipgloss.NewStyle().Foreground(danger).Bold(true)
-	okStyle     = lipgloss.NewStyle().Foreground(success).Bold(true)
-	cursorStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	labelStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-)
+	bgDark    = lipgloss.Color("#344e41")
+	bgMid     = lipgloss.Color("#3a5a40")
+	accent    = lipgloss.Color("#588157")
+	textSoft  = lipgloss.Color("#a3b18a")
+	textLight = lipgloss.Color("#dad7cd")
 
-// ==================== MESSAGES ====================
-// Tipe pesan async yang dikirim balik ke Update() setelah operasi
-// database/subprocess selesai — didefinisikan di sini karena erat kaitannya
-// dengan bentuk data model, implementasinya (fungsi generator) ada di commands.go.
+	// Style untuk ASCII Art Logo
+	logoStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(accent)
+
+ asciiLogo = `
+     __       ______  ____    _  __  ____    __  ___ 
+    /  /     / ____/ / __ \  / //_/ / __ \  /  |/  / 
+   /  /     / /___  / /_/ / / ,<   / / / / / /|_/ /  
+  /  /___  / /___  / ____/ / /| | / /_/ / / /  / /   
+ /______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    
+												
+    			 G U N A D A R M A                   
+ `
+
+	// Component Styles
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(textLight).
+			Background(bgDark).
+			Padding(0, 1)
+
+	boxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accent).
+			Padding(1, 2)
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(textSoft).
+			Italic(true)
+
+	errStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e63946")).
+			Bold(true)
+
+	okStyle = lipgloss.NewStyle().
+			Foreground(accent).
+			Bold(true)
+
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(textLight).
+			Bold(true)
+
+	dimStyle = lipgloss.NewStyle().
+			Foreground(textSoft)
+
+	labelStyle = lipgloss.NewStyle().
+			Foreground(textSoft)
+)
 
 type roomsLoadedMsg struct {
 	rooms []Room

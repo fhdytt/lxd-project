@@ -222,7 +222,7 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 
 func (m model) backToMainMenu() (tea.Model, tea.Cmd) {
 	m.state = screenMainMenu
-	m.menuItems = []string{"Lihat Daftar Environment", "Provisioning Ruangan", "Reset Environment", "Keluar"}
+	m.menuItems = []string{"View Environment List", "Room Setup", "Reset Environment", "Exit"}
 	m.menuCursor = 0
 	return m, nil
 }

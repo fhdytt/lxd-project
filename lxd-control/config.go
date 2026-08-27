@@ -7,13 +7,10 @@ import (
 	"strings"
 )
 
-// Config menampung konfigurasi lxd-control. Dibaca dari file .env di folder
-// yang sama (pola yang sama dengan praktikum-api), atau dari environment
-// variable biasa kalau sudah di-export.
 type Config struct {
 	DatabaseURL string
-	PGPassword  string // diteruskan ke kelola-lxd.sh sebagai env var PGPASSWORD
-	ScriptPath  string // path ke kelola-lxd.sh
+	PGPassword  string 
+	ScriptPath  string 
 }
 
 func LoadConfig() (*Config, error) {
@@ -26,10 +23,10 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL wajib di-set (cek file .env)")
+		return nil, fmt.Errorf("DATABASE_URL wajib di-set")
 	}
 	if cfg.PGPassword == "" {
-		return nil, fmt.Errorf("PGPASSWORD wajib di-set (cek file .env) — dibutuhkan kelola-lxd.sh")
+		return nil, fmt.Errorf("PGPASSWORD wajib di-set")
 	}
 	if _, err := os.Stat(cfg.ScriptPath); err != nil {
 		return nil, fmt.Errorf("kelola-lxd.sh tidak ditemukan di %q: %w", cfg.ScriptPath, err)

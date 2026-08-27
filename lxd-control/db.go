@@ -15,8 +15,6 @@ type Module struct {
 	Name string
 }
 
-// EnvironmentRow merepresentasikan satu baris untuk ditampilkan di layar
-// daftar environment — sudah di-JOIN dengan sessions, modules, praktikan.
 type EnvironmentRow struct {
 	ContainerName     string
 	SSHPort           int
@@ -24,7 +22,7 @@ type EnvironmentRow struct {
 	HasCleanSnapshot  bool
 	CourseCode        string
 	Module            string
-	PraktikanNama     string // kosong kalau belum diisi
+	PraktikanNama     string 
 	PraktikanNPM      string
 }
 
@@ -64,9 +62,6 @@ func ListModules(ctx context.Context, db *pgxpool.Pool) ([]Module, error) {
 	return result, rows.Err()
 }
 
-// ListEnvironmentsForRoom mengambil semua environment yang SAAT INI ada
-// (masih tercatat di database — row-nya dihapus otomatis saat "stop") untuk
-// satu ruangan, diurutkan berdasarkan slot.
 func ListEnvironmentsForRoom(ctx context.Context, db *pgxpool.Pool, roomNama string) ([]EnvironmentRow, error) {
 	const query = `
 		SELECT
@@ -101,8 +96,6 @@ func ListEnvironmentsForRoom(ctx context.Context, db *pgxpool.Pool, roomNama str
 	return result, rows.Err()
 }
 
-// ListContainerNamesForRoom dipakai layar "reset 1 container" — cuma butuh
-// nama container-nya saja untuk daftar pilihan.
 func ListContainerNamesForRoom(ctx context.Context, db *pgxpool.Pool, roomNama string) ([]string, error) {
 	const query = `
 		SELECT e.container_name
