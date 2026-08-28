@@ -162,12 +162,6 @@ elif [ "$ACTION" == "stop" ]; then
             echo "Menghapus $NAME..."
             lxc stop "$NAME" --force
             lxc delete "$NAME"
-
-            '''
-                haspun kontainer dari database,
-                Perlu dihapus karena container_name UNIQUE di database,supaya nama yang sama bisa dipakai lagi di provisioning berikutnya.
-            '''
-            
             psql_query "DELETE FROM environments WHERE container_name = '$NAME'" > /dev/null
         fi
     done

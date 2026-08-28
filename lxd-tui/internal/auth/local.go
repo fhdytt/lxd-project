@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"bufio"
@@ -8,29 +8,27 @@ import (
 	"strings"
 
 	"github.com/amoghe/go-crypt"
+
+	"lxd-tui/internal/models"
 )
 
 // LocalUser merepresentasikan satu akun Linux yang bisa dipilih praktikan
 // untuk login, dibaca langsung dari /etc/passwd di dalam container itu
 // sendiri (bukan dari API — ini murni informasi lokal container).
-type LocalUser struct {
-	Username string
-	UID      int
-}
 
 // listLocalUsers membaca /etc/passwd dan mengembalikan daftar user yang
 // masuk akal untuk dipilih praktikan: root, plus user apapun yang sudah
 // dibuat praktikan sendiri selama praktikum (UID >= 1000, punya shell
 // interaktif, bukan akun service/system).
-func listLocalUsers() ([]LocalUser, error) {
+func ListLocalUsers() ([]models.LocalUser, error) {
 	f, err := os.Open("/etc/passwd")
 	if err != nil {
 		return nil, fmt.Errorf("tidak bisa membaca /etc/passwd: %w", err)
 	}
 	defer f.Close()
 
-	var users []LocalUser
-	var rootUser *LocalUser
+	var users []models.LocalUser
+	var rootUser *models.LocalUser
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -44,13 +42,17 @@ func listLocalUsers() ([]LocalUser, error) {
 		if err != nil {
 			continue
 		}
+
 		shell := fields[6]
 
 		if strings.HasSuffix(shell, "nologin") || strings.HasSuffix(shell, "/false") {
 			continue
 		}
 
-		u := LocalUser{Username: username, UID: uid}
+		u := models.LocalUser{
+			Username: username,
+			UID:      strconv.Itoa(uid),
+		}
 
 		if uid == 0 {
 			rootUser = &u
@@ -66,7 +68,7 @@ func listLocalUsers() ([]LocalUser, error) {
 	}
 
 	if rootUser != nil {
-		users = append([]LocalUser{*rootUser}, users...)
+		users = append([]models.LocalUser{*rootUser}, users...)
 	}
 
 	return users, nil
@@ -83,7 +85,7 @@ func listLocalUsers() ([]LocalUser, error) {
 // bahkan bisa panic saat mencoba. Dengan memanggil crypt(3) milik OS
 // langsung, verifikasi otomatis kompatibel dengan algoritma APAPUN yang
 // dipakai sistem, tanpa TUI perlu tahu detailnya.
-func verifyLocalPassword(username, password string) (ok bool, err error) {
+func VerifyLocalPassword(username, password string) (ok bool, err error) {
 	// Pengaman terakhir: kalau ada apapun yang tidak terduga (termasuk dari
 	// binding cgo), jangan sampai keseluruhan proses TUI ikut mati dan
 	// memutus sesi SSH praktikan begitu saja.
