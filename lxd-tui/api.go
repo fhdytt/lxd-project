@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"bytes"
@@ -6,10 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"lxd-tui/internal/models"
 	"net/http"
 	"time"
 )
+
+// EnvInfo merepresentasikan data environment yang ditampilkan di dashboard.
+type EnvInfo struct {
+	ContainerName     string `json:"container_name"`
+	CourseCode        string `json:"course_code"`
+	Module            string `json:"module"`
+	Room              string `json:"room"`
+	MeetingNumber     int    `json:"meeting_number"`
+	SessionDate       string `json:"session_date"`
+	Status            string `json:"status"`
+	AlreadyIdentified bool   `json:"already_identified"`
+}
 
 // APIClient membungkus komunikasi HTTP ke Go backend.
 type APIClient struct {
@@ -26,7 +37,7 @@ func NewAPIClient(baseURL, token string) *APIClient {
 	}
 }
 
-func (c *APIClient) FetchEnvInfo() (*models.EnvInfo, error) {
+func (c *APIClient) FetchEnvInfo() (*EnvInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/api/v1/environments/me", nil)
 	if err != nil {
 		return nil, err
@@ -45,7 +56,7 @@ func (c *APIClient) FetchEnvInfo() (*models.EnvInfo, error) {
 		return nil, fmt.Errorf("server merespons status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var info models.EnvInfo
+	var info EnvInfo
 	if err := json.Unmarshal(body, &info); err != nil {
 		return nil, fmt.Errorf("gagal membaca respons server: %w", err)
 	}

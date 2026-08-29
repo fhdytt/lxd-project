@@ -1,266 +1,79 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
+	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/spinner"
-
-	"lxd-tui/internal/api"
-	"lxd-tui/internal/auth"
-	"lxd-tui/internal/models"
-	"lxd-tui/internal/state"
-	"lxd-tui/internal/views"
 )
 
-// Konfigurasi
-const (
-	APIBaseURL = "http://10.10.10.9:8080"
-)
-
-type model struct {
-	state *state.AppState
-	api   *api.APIClient
-}
-
-func initialModel() model {
-	token := os.Getenv("LXD_TOKEN")
-	if token == "" {
-		log.Fatal("LXD_TOKEN environment variable is required")
-	}
-
-	return model{
-		state: state.NewAppState(),
-		api:   api.NewAPIClient(APIBaseURL, token),
-	}
-}
-
-// ==================== COMMANDS ====================
-
-func (m model) fetchEnvCmd() tea.Cmd {
-	return func() tea.Msg {
-		info, err := m.api.FetchEnvInfo()
-		return envInfoMsg{info: info, err: err}
-	}
-}
-
-func (m model) submitIdentityCmd() tea.Cmd {
-	nama := m.state.InputNama.Value()
-	npm := m.state.InputNPM.Value()
-	return func() tea.Msg {
-		err := m.api.SubmitIdentity(nama, npm)
-		return identityMsg{err: err}
-	}
-}
-
-func loadUsersCmd() tea.Cmd {
-	return func() tea.Msg {
-		users, err := auth.ListLocalUsers()
-		return usersMsg{users: users, err: err}
-	}
-}
-
-func verifyPasswordCmd(username, password string) tea.Cmd {
-	return func() tea.Msg {
-		ok, err := auth.VerifyLocalPassword(username, password)
-		return passwordMsg{ok: ok, err: err}
-	}
-}
-
-// ==================== MESSAGES ====================
-
-type envInfoMsg struct {
-	info *models.EnvInfo
-	err  error
-}
-
-type identityMsg struct {
-	err error
-}
-
-type usersMsg struct {
-	users []models.LocalUser
-	err   error
-}
-
-type passwordMsg struct {
-	ok  bool
-	err error
-}
-
-// ==================== INIT ====================
-
-func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		m.fetchEnvCmd(),
-		m.state.Spinner.Tick,
-	)
-}
-
-// ==================== UPDATE ====================
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-
-	case tea.WindowSizeMsg:
-		m.state.WindowWidth = msg.Width
-		m.state.WindowHeight = msg.Height
-		return m, nil
-
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			// shouldContinueToShell TETAP false -> tidak pernah lanjut ke shell
-			return m, tea.Quit
-		}
-		return m.handleKey(msg)
-
-	case envInfoMsg:
-		if msg.err != nil {
-			m.state.GoToError(msg.err.Error())
-			return m, nil
-		}
-		m.state.GoToDashboard(msg.info)
-		return m, nil
-
-	case identityMsg:
-		if msg.err != nil {
-			m.state.GoToError(msg.err.Error())
-			return m, nil
-		}
-		// Identifikasi berhasil -> lanjut ke pemilihan user Linux
-		m.state.CurrentScreen = state.ScreenSelectUser
-		return m, loadUsersCmd()
-
-	case usersMsg:
-		if msg.err != nil {
-			m.state.GoToError(msg.err.Error())
-			return m, nil
-		}
-		m.state.GoToSelectUser(msg.users)
-		return m, nil
-
-	case passwordMsg:
-		if msg.err != nil {
-			m.state.GoToError(msg.err.Error())
-			return m, nil
-		}
-		if !msg.ok {
-			m.state.SetPasswordError("Password salah, coba lagi.")
-			return m, nil
-		}
-		// Password cocok -> BARU di sini flag diizinkan lanjut ke shell
-		m.state.MarkShellAllowed()
-		return m, tea.Quit
-
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.state.Spinner, cmd = m.state.Spinner.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
-}
-
-// ==================== KEY HANDLER ====================
-
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch m.state.CurrentScreen {
-
-	case state.ScreenDashboard:
-		if msg.String() == "enter" {
-			m.state.GoToInputNama()
-		}
-		return m, nil
-
-	case state.ScreenInputNama:
-		if msg.String() == "enter" && m.state.InputNama.Value() != "" {
-			m.state.GoToInputNPM()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.state.InputNama, cmd = m.state.InputNama.Update(msg)
-		return m, cmd
-
-	case state.ScreenInputNPM:
-		if msg.String() == "enter" && m.state.InputNPM.Value() != "" {
-			m.state.StartSubmitting()
-			return m, m.submitIdentityCmd()
-		}
-		if msg.String() == "esc" {
-			m.state.GoToInputNama()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.state.InputNPM, cmd = m.state.InputNPM.Update(msg)
-		return m, cmd
-
-	case state.ScreenSelectUser:
-		if len(m.state.LocalUsers) == 0 {
-			return m, nil
-		}
-		switch msg.String() {
-		case "up", "k":
-			m.state.UserCursorUp()
-		case "down", "j":
-			m.state.UserCursorDown()
-		case "enter":
-			if user := m.state.GetSelectedUser(); user != nil {
-				m.state.GoToPasswordInput(user.Username)
-			}
-		}
-		return m, nil
-
-	case state.ScreenLocalPassword:
-		if msg.String() == "enter" && m.state.InputPassword.Value() != "" {
-			return m, verifyPasswordCmd(
-				m.state.SelectedUser,
-				m.state.InputPassword.Value(),
-			)
-		}
-		if msg.String() == "esc" {
-			m.state.CurrentScreen = state.ScreenSelectUser
-			m.state.PWError = ""
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.state.InputPassword, cmd = m.state.InputPassword.Update(msg)
-		return m, cmd
-
-	case state.ScreenError:
-		if msg.String() == "enter" {
-			m.state.ResetForRetry()
-			return m, m.fetchEnvCmd()
-		}
-		return m, nil
-	}
-
-	return m, nil
-}
-
-// ==================== VIEW ====================
-
-func (m model) View() string {
-	return views.MainView(m.state)
-}
-
-// ==================== MAIN ====================
-
+// main sengaja setipis mungkin — cuma "merakit" komponen: baca env var,
+// buka koneksi API, jalankan program TUI, lalu exec ke shell/login kalau
+// sukses. Semua logic sesungguhnya ada di file lain: model.go (state &
+// tipe data), commands.go (operasi async), update.go (transisi state),
+// view.go (rendering tampilan), api.go (HTTP client ke backend),
+// local_auth.go (baca /etc/passwd & verifikasi /etc/shadow).
 func main() {
-	p := tea.NewProgram(
-		initialModel(),
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
+	apiURL := getContainerEnv("PRAKTIKUM_API_URL")
+	token := getContainerEnv("PRAKTIKUM_API_TOKEN")
 
+	if apiURL == "" || token == "" {
+		fmt.Fprintln(os.Stderr, "Error: PRAKTIKUM_API_URL atau PRAKTIKUM_API_TOKEN belum di-set pada environment ini.")
+		fmt.Fprintln(os.Stderr, "Hubungi asisten/admin lab, environment ini belum terkonfigurasi dengan benar.")
+		os.Exit(1)
+	}
+
+	client := NewAPIClient(apiURL, token)
+
+	p := tea.NewProgram(initialModel(client), tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, "TUI error:", err)
+		os.Exit(1)
 	}
 
-	// Cek apakah boleh lanjut ke shell
-	if m, ok := finalModel.(model); ok &&
-		m.state.ShouldContinueToShell {
+	m := finalModel.(model)
+
+	if !m.shouldContinueToShell {
+		fmt.Println("Sesi ditutup.")
+		os.Exit(0)
+	}
+
+	execAsUser(m.selectedUsername)
+}
+
+// getContainerEnv membaca env var yang di-inject LXD lewat
+// "lxc config set <container> environment.KEY=value". Fallback ke
+// /proc/1/environ karena env var itu tidak diwariskan ke sesi SSH secara
+// otomatis — lihat dokumentasi TUI § 4.3.
+func getContainerEnv(key string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	data, err := os.ReadFile("/proc/1/environ")
+	if err != nil {
+		return ""
+	}
+	for _, entry := range strings.Split(string(data), "\x00") {
+		if strings.HasPrefix(entry, key+"=") {
+			return strings.TrimPrefix(entry, key+"=")
+		}
+	}
+	return ""
+}
+
+// execAsUser menggantikan proses TUI dengan sesi login sebagai user Linux
+// yang dipilih. Memakai "login -f" (force, tanpa password lagi — karena
+// password SUDAH diverifikasi manual oleh TUI lewat /etc/shadow) daripada
+// "su", supaya sesi tercatat rapi di utmp/wtmp seperti login normal.
+// TUI selalu jalan sebagai root (lihat keputusan desain project), jadi
+// "login -f" ini valid dijalankan untuk user manapun, termasuk root sendiri.
+func execAsUser(username string) {
+	env := os.Environ()
+	if err := syscall.Exec("/bin/login", []string{"login", "-f", username}, env); err != nil {
+		fmt.Fprintln(os.Stderr, "Gagal masuk sebagai", username, ":", err)
+		os.Exit(1)
 	}
 }
