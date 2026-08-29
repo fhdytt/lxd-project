@@ -331,7 +331,7 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 		if m.selectedResetMode == "room" {
 			return m, resetRoomCmd(m.cfg, m.db, m.selectedRoom)
 		}
-		return m, resetContainerCmd(m.cfg, m.selectedContainer)
+		return m, resetContainerCmd(m.cfg, m.db, m.selectedContainer)
 
 	// ---------- Kelola Ruangan ----------
 

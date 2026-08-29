@@ -241,18 +241,31 @@ func stopRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 	}
 }
 
-// resetContainerCmd me-reset SATU container ke snapshot 'clean'.
-func resetContainerCmd(cfg *Config, containerName string) tea.Cmd {
+// resetContainerCmd me-reset SATU container ke snapshot 'clean', DAN
+// melepas kaitan identitas praktikan yang sebelumnya login di sini (lihat
+// UnlinkPraktikan di db.go) — supaya praktikan berikutnya bisa
+// mengidentifikasi diri dari nol, bukan ketolak terus-menerus karena
+// identitas lama masih "nempel".
+func resetContainerCmd(cfg *Config, db *pgxpool.Pool, containerName string) tea.Cmd {
 	return func() tea.Msg {
-		err := ResetContainer(cfg, containerName)
-		if err != nil {
+		if err := ResetContainer(cfg, containerName); err != nil {
 			return commandDoneMsg{output: err.Error(), err: err}
 		}
-		return commandDoneMsg{output: containerName + ": berhasil direset.", err: nil}
+
+		if err := UnlinkPraktikan(context.Background(), db, containerName); err != nil {
+			return commandDoneMsg{
+				output: fmt.Sprintf("%s: container berhasil direset TAPI gagal melepas identitas praktikan lama — %v", containerName, err),
+				err:    err,
+			}
+		}
+
+		return commandDoneMsg{output: containerName + ": berhasil direset (identitas praktikan lama juga sudah dilepas).", err: nil}
 	}
 }
 
-// resetRoomCmd me-reset SEMUA container di satu ruangan.
+// resetRoomCmd me-reset SEMUA container di satu ruangan, DAN melepas
+// kaitan identitas praktikan di masing-masing container (lihat catatan di
+// resetContainerCmd di atas).
 func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -274,7 +287,12 @@ func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 				failed = true
 				continue
 			}
-			output.WriteString(fmt.Sprintf("%s: berhasil direset\n", name))
+			if err := UnlinkPraktikan(ctx, db, name); err != nil {
+				output.WriteString(fmt.Sprintf("%s: direset TAPI gagal melepas identitas lama — %v\n", name, err))
+				failed = true
+				continue
+			}
+			output.WriteString(fmt.Sprintf("%s: berhasil direset, identitas lama dilepas\n", name))
 		}
 
 		return commandDoneMsg{output: output.String(), err: errFromBool(failed)}
