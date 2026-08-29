@@ -282,3 +282,111 @@ func DeleteSession(ctx context.Context, db *pgxpool.Pool, id string) error {
 	_, err := db.Exec(ctx, "DELETE FROM sessions WHERE id = $1", id)
 	return err
 }
+
+// ==================== PROVISIONING (dipakai oleh commands.go) ====================
+
+// ModuleDetail mirip Module, tapi ikut membawa master_container & lxd_profile
+// — informasi yang dibutuhkan untuk benar-benar menjalankan provisioning
+// (bukan cuma ditampilkan di menu).
+type ModuleDetail struct {
+	Code            string
+	Name            string
+	MasterContainer string
+	LxdProfile      string
+}
+
+func GetModuleByCode(ctx context.Context, db *pgxpool.Pool, code string) (*ModuleDetail, error) {
+	var m ModuleDetail
+	err := db.QueryRow(ctx,
+		"SELECT code, name, master_container, lxd_profile FROM modules WHERE code = $1", code,
+	).Scan(&m.Code, &m.Name, &m.MasterContainer, &m.LxdProfile)
+	if err != nil {
+		return nil, fmt.Errorf("modul %q tidak ditemukan: %w", code, err)
+	}
+	return &m, nil
+}
+
+func GetRoomByNama(ctx context.Context, db *pgxpool.Pool, nama string) (*RoomDetail, error) {
+	var r RoomDetail
+	err := db.QueryRow(ctx,
+		"SELECT nama, port_prefix, capacity FROM rooms WHERE nama = $1", nama,
+	).Scan(&r.Nama, &r.PortPrefix, &r.Capacity)
+	if err != nil {
+		return nil, fmt.Errorf("ruangan %q tidak ditemukan: %w", nama, err)
+	}
+	return &r, nil
+}
+
+// ListSessionsForProvision mencari sesi yang LAYAK dipakai untuk
+// provisioning (status scheduled/active) untuk kombinasi ruangan+modul
+// tertentu — dipakai admin untuk "menempel" provisioning ke sesi yang sudah
+// dibuat lewat menu Kelola Sesi, bukan bikin sesi baru asal-asalan.
+func ListSessionsForProvision(ctx context.Context, db *pgxpool.Pool, roomNama, moduleCode string) ([]SessionDetail, error) {
+	const query = `
+		SELECT s.id, s.course_code, r.nama, m.code, s.meeting_number, s.session_date::text, s.status
+		FROM sessions s
+		JOIN rooms r   ON r.id = s.room_id
+		JOIN modules m ON m.id = s.module_id
+		WHERE r.nama = $1 AND m.code = $2 AND s.status IN ('scheduled', 'active')
+		ORDER BY (s.status = 'active') DESC, s.session_date DESC
+	`
+	rows, err := db.Query(ctx, query, roomNama, moduleCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []SessionDetail
+	for rows.Next() {
+		var s SessionDetail
+		if err := rows.Scan(&s.ID, &s.CourseCode, &s.RoomNama, &s.ModuleCode, &s.MeetingNumber, &s.SessionDate, &s.Status); err != nil {
+			return nil, err
+		}
+		result = append(result, s)
+	}
+	return result, rows.Err()
+}
+
+// InsertEnvironment upsert (aman dipanggil ulang tanpa "stop" dulu, sama
+// seperti perilaku kelola-lxd.sh versi lama).
+func InsertEnvironment(ctx context.Context, db *pgxpool.Pool, sessionID, containerName string, slot, port int, tokenHash string) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO environments (session_id, container_name, slot_number, ssh_port, status, api_token_hash)
+		VALUES ($1, $2, $3, $4, 'running', $5)
+		ON CONFLICT (container_name) DO UPDATE SET
+			session_id = EXCLUDED.session_id,
+			slot_number = EXCLUDED.slot_number,
+			ssh_port = EXCLUDED.ssh_port,
+			status = EXCLUDED.status,
+			api_token_hash = EXCLUDED.api_token_hash,
+			praktikan_id = NULL,
+			identified_at = NULL,
+			has_clean_snapshot = false
+	`, sessionID, containerName, slot, port, tokenHash)
+	return err
+}
+
+func MarkSnapshotReady(ctx context.Context, db *pgxpool.Pool, containerName string) error {
+	_, err := db.Exec(ctx, "UPDATE environments SET has_clean_snapshot = true WHERE container_name = $1", containerName)
+	return err
+}
+
+// UnlinkPraktikan melepas kaitan environment ini dari praktikan yang
+// sebelumnya mengidentifikasi diri di sini. WAJIB dipanggil setiap kali
+// environment di-reset (lihat resetContainerCmd/resetRoomCmd di
+// commands.go) — kalau tidak, environment ini akan TERKUNCI SELAMANYA ke
+// identitas praktikan lama walau isi container-nya sudah bersih, karena
+// verifikasi identitas (lihat API § 5.4a) membandingkan ke row praktikan
+// yang tercatat di sini.
+func UnlinkPraktikan(ctx context.Context, db *pgxpool.Pool, containerName string) error {
+	_, err := db.Exec(ctx,
+		"UPDATE environments SET praktikan_id = NULL, identified_at = NULL WHERE container_name = $1",
+		containerName,
+	)
+	return err
+}
+
+func DeleteEnvironmentByContainerName(ctx context.Context, db *pgxpool.Pool, containerName string) error {
+	_, err := db.Exec(ctx, "DELETE FROM environments WHERE container_name = $1", containerName)
+	return err
+}

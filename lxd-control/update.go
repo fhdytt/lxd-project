@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -93,6 +94,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case sessionsForProvisionLoadedMsg:
+		if msg.err != nil {
+			return m.toError(msg.err)
+		}
+		if len(msg.sessions) == 0 {
+			m.errMsg = fmt.Sprintf(
+				"Tidak ada sesi berstatus scheduled/active untuk ruangan %s modul %s.\nBuat dulu sesinya lewat menu 'Kelola Sesi' > 'Tambah Sesi'.",
+				m.selectedRoom, m.selectedModule,
+			)
+			m.state = screenError
+			m.returnTo = model.backToMainMenu
+			return m, nil
+		}
+		labels := make([]string, len(msg.sessions))
+		ids := make([]string, len(msg.sessions))
+		for i, s := range msg.sessions {
+			labels[i] = fmt.Sprintf("%s | pertemuan %d | %s | %s", s.CourseCode, s.MeetingNumber, s.SessionDate, s.Status)
+			ids[i] = s.ID
+		}
+		m.menuItems = labels
+		m.provisionSessionIDs = ids
+		m.menuCursor = 0
+		return m, nil
+
 	case roomMutatedMsg:
 		if msg.err != nil {
 			m.commandOutput = "Gagal: " + msg.err.Error()
@@ -176,7 +201,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func isMenuScreen(s screenState) bool {
 	switch s {
 	case screenMainMenu, screenPickRoomForList, screenPickRoomForProvision,
-		screenPickProvisionAction, screenPickModuleForStart, screenConfirmProvision,
+		screenPickProvisionAction, screenPickModuleForStart, screenPickSessionForProvision, screenConfirmProvision,
 		screenPickRoomForReset, screenPickResetMode, screenPickContainerForReset,
 		screenConfirmReset,
 		screenRoomsMenu, screenRoomPickForEdit, screenRoomPickForDelete, screenRoomDeleteConfirm,
@@ -251,6 +276,11 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 
 	case screenPickModuleForStart:
 		m.selectedModule = m.modules[m.menuCursor].Code
+		m.state = screenPickSessionForProvision
+		return m, loadSessionsForProvisionCmd(m.db, m.selectedRoom, m.selectedModule)
+
+	case screenPickSessionForProvision:
+		m.selectedSessionID = m.provisionSessionIDs[m.menuCursor]
 		m.state = screenConfirmProvision
 		m.menuItems = []string{"Ya, jalankan", "Batal"}
 		m.menuCursor = 0
@@ -263,9 +293,9 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 		m.state = screenRunningCommand
 		m.returnTo = model.backToMainMenu
 		if m.selectedAction == "start" {
-			return m, runCommandCmd(m.cfg, "start", m.selectedRoom, m.selectedModule)
+			return m, provisionRoomCmd(m.cfg, m.db, m.selectedRoom, m.selectedModule, m.selectedSessionID)
 		}
-		return m, runCommandCmd(m.cfg, "stop", m.selectedRoom)
+		return m, stopRoomCmd(m.cfg, m.db, m.selectedRoom)
 
 	case screenPickRoomForReset:
 		m.selectedRoom = selected
@@ -299,9 +329,9 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 		m.state = screenRunningCommand
 		m.returnTo = model.backToMainMenu
 		if m.selectedResetMode == "room" {
-			return m, runCommandCmd(m.cfg, "reset-room", m.selectedRoom)
+			return m, resetRoomCmd(m.cfg, m.db, m.selectedRoom)
 		}
-		return m, runCommandCmd(m.cfg, "reset", m.selectedContainer)
+		return m, resetContainerCmd(m.cfg, m.selectedContainer)
 
 	// ---------- Kelola Ruangan ----------
 

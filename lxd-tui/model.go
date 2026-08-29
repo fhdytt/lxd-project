@@ -54,13 +54,13 @@ func initialModel(client *APIClient) model {
 	nama.Focus()
 	nama.CharLimit = 150
 	nama.Width = 40
-	nama.PromptStyle = lipgloss.NewStyle().Foreground(accent)
+	nama.PromptStyle = lipgloss.NewStyle().Foreground(marioRed)
 
 	npm := textinput.New()
 	npm.Placeholder = "NPM"
 	npm.CharLimit = 30
 	npm.Width = 40
-	npm.PromptStyle = lipgloss.NewStyle().Foreground(accent)
+	npm.PromptStyle = lipgloss.NewStyle().Foreground(marioRed)
 
 	pw := textinput.New()
 	pw.Placeholder = "Password"
@@ -68,11 +68,11 @@ func initialModel(client *APIClient) model {
 	pw.Width = 40
 	pw.EchoMode = textinput.EchoPassword
 	pw.EchoCharacter = '•'
-	pw.PromptStyle = lipgloss.NewStyle().Foreground(accent)
+	pw.PromptStyle = lipgloss.NewStyle().Foreground(marioRed)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(accent)
+	sp.Style = lipgloss.NewStyle().Foreground(marioRed)
 
 	return model{
 		client:        client,
@@ -85,34 +85,73 @@ func initialModel(client *APIClient) model {
 }
 
 // ==================== STYLES ====================
-
+//
+// Palet warna: Nintendo Retro / Game Boy Style (Transparan / Tanpa Background)
+//   marioRed     #FF3131  Merah Nintendo / Mario (Accent, Title, Cursor)
+//   snesPurple   #836FFF  Ungu SNES (Border, Labels, Subtitles)
+//   gameboyGreen #9BBC0F  Hijau Khas Layar Game Boy (Values / Success)
+//   coinYellow   #FEE12B  Kuning Koin Super Mario (Hints & Subtitles)
+//   creamWhite   #F8F8F0  Putih Game Boy Shell (Base Text)
+//   dangerRed    #FF0055  Merah Terang (Errors)
+//
 var (
-	accent    = lipgloss.Color("39")
-	accentDim = lipgloss.Color("245")
-	danger    = lipgloss.Color("203")
-	muted     = lipgloss.Color("241")
+	marioRed     = lipgloss.Color("#FF3131")
+	snesPurple   = lipgloss.Color("#836FFF")
+	gameboyGreen = lipgloss.Color("#9BBC0F")
+	coinYellow   = lipgloss.Color("#FEE12B")
+	creamWhite   = lipgloss.Color("#F8F8F0")
+	dangerRed    = lipgloss.Color("#FF0055")
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(accent).
+			Foreground(marioRed).
 			Padding(0, 1)
 
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(accentDim).
+			Foreground(creamWhite).
 			Italic(true)
 
+	// boxStyle TANPA Background() agar menyatu dengan terminal
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(accent).
+			BorderForeground(snesPurple).
 			Padding(1, 3)
 
-	labelStyle  = lipgloss.NewStyle().Foreground(accentDim)
-	valueStyle  = lipgloss.NewStyle().Bold(true)
-	hintStyle   = lipgloss.NewStyle().Foreground(muted).Italic(true)
-	errStyle    = lipgloss.NewStyle().Foreground(danger).Bold(true)
-	cursorStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	menuItemDim = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	labelStyle = lipgloss.NewStyle().Foreground(snesPurple)
+
+	// valueStyle TANPA Background() agar tidak ada sorotan kotak hitam
+	valueStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(gameboyGreen)
+
+	hintStyle = lipgloss.NewStyle().Foreground(coinYellow).Italic(true)
+	errStyle  = lipgloss.NewStyle().Foreground(dangerRed).Bold(true)
+
+	// cursorStyle untuk menu pilihan
+	cursorStyle = lipgloss.NewStyle().Foreground(marioRed).Bold(true)
+	menuItemDim = lipgloss.NewStyle().Foreground(snesPurple)
+
+	// Logo LEPKOM Merah Mario & Subjudul Kuning Koin
+	logoColor    = lipgloss.Color("#9BBC0F")
+	logoStyle    = lipgloss.NewStyle().Foreground(logoColor).Bold(true)
+	logoSubStyle = lipgloss.NewStyle().Foreground(coinYellow).Bold(true)
 )
+
+// lepkomLogo — sama persis dengan versi lxd-control.
+const lepkomLogo = `    __       ______  ____    _  __  ____    __  ___ 
+   / /      / ____/ / __ \  / //_/ / __ \  /  |/  / 
+  / /      / /___  / /_/ / / ,<   / / / / / /|_/ /  
+ / /___   / /___  / ____/ / /| | / /_/ / / /  / /   
+/______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    `
+
+// renderLogo merender logo ASCII LEPKOM dengan subjudul
+// "G U N A D A R M A" yang otomatis dipusatkan sesuai lebar logo.
+func renderLogo() string {
+	width := lipgloss.Width(lepkomLogo)
+	logo := logoStyle.Render(lepkomLogo)
+	sub := logoSubStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, "G U N A D A R M A"))
+	return logo + "\n" + sub
+}
 
 // ==================== MESSAGES ====================
 

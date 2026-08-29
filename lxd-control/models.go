@@ -19,6 +19,7 @@ const (
 	screenPickRoomForProvision
 	screenPickProvisionAction
 	screenPickModuleForStart
+	screenPickSessionForProvision
 	screenConfirmProvision
 	screenRunningCommand
 	screenCommandResult
@@ -113,6 +114,10 @@ type model struct {
 	selectedResetMode string // "room" atau "container"
 	selectedContainer string
 
+	// provisionSessionIDs paralel dengan menuItems saat screenPickSessionForProvision
+	provisionSessionIDs []string
+	selectedSessionID   string
+
 	commandOutput string
 	commandFailed bool
 
@@ -162,29 +167,60 @@ func initialModel(cfg *Config, db *pgxpool.Pool) model {
 		roomInputPortPrefix: newInput("Port prefix 2 digit, misal 21"),
 		roomInputCapacity:   newInput("Kapasitas, misal 5"),
 
-		sessionInputCourseCode:    newInput("Contoh : 1CNAR261442K"),
+		sessionInputCourseCode:    newInput("Contohh :1CNAR261442K"),
 		sessionInputMeetingNumber: newInput("Pertemuan ke-"),
 		sessionInputDate:          newInput("YYYY-MM-DD"),
 	}
 }
 
 // ==================== STYLES ====================
-
 var (
-	accent      = lipgloss.Color("39")
-	danger      = lipgloss.Color("203")
-	success     = lipgloss.Color("42")
-	muted       = lipgloss.Color("241")
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(accent).Padding(0, 1)
-	boxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 3)
-	hintStyle   = lipgloss.NewStyle().Foreground(muted).Italic(true)
-	errStyle    = lipgloss.NewStyle().Foreground(danger).Bold(true)
-	okStyle     = lipgloss.NewStyle().Foreground(success).Bold(true)
-	cursorStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	labelStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	base      = lipgloss.Color("#D8DBE2")
+	secondary = lipgloss.Color("#A9BCD0")
+	accent    = lipgloss.Color("#58A4B0")
+	border    = lipgloss.Color("#373F51")
+	dark      = lipgloss.Color("#1B1B1E")
+
+	// danger & success sengaja dipertahankan merah/hijau standar (bukan bagian
+	// dari palet LEPKOM) supaya makna "error" / "berhasil" tetap universal
+	// dan tidak tertukar dengan warna aksen biasa.
+	danger  = lipgloss.Color("203")
+	success = lipgloss.Color("42")
+
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent).Padding(0, 1)
+	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 3)
+	hintStyle  = lipgloss.NewStyle().Foreground(secondary).Italic(true)
+	errStyle   = lipgloss.NewStyle().Foreground(danger).Bold(true)
+	okStyle    = lipgloss.NewStyle().Foreground(success).Bold(true)
+
+	// cursorStyle sekarang dirender sebagai "pill" berwarna solid (teks gelap
+	// di atas background accent) supaya item yang sedang dipilih terasa lebih
+	// interaktif, bukan cuma teks yang berubah warna.
+	cursorStyle = lipgloss.NewStyle().Foreground(dark).Background(accent).Bold(true).Padding(0, 1)
+	dimStyle    = lipgloss.NewStyle().Foreground(secondary)
+	labelStyle  = lipgloss.NewStyle().Foreground(base)
+
+	logoColor    = lipgloss.Color("#2C4533")
+	logoStyle    = lipgloss.NewStyle().Foreground(logoColor).Italic(true)
+	logoSubStyle = lipgloss.NewStyle().Foreground(secondary).Bold(true)
 )
 
+// lepkomLogo adalah ASCII art nama LEPKOM. Disimpan sebagai raw string agar
+// spasi/indentasinya persis seperti yang dirancang.
+const lepkomLogo = `     __       ______  ____    _  __  ____    __  ___ 
+    /  /     / ____/ / __ \  / //_/ / __ \  /  |/  / 
+   /  /     / /___  / /_/ / / ,<   / / / / / /|_/ /  
+  /  /___  / /___  / ____/ / /| | / /_/ / / /  / /   
+ /______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    `
+
+// renderLogo merender logo ASCII LEPKOM (italic, warna accent) dengan
+// subjudul "G U N A D A R M A" yang otomatis dipusatkan sesuai lebar logo.
+func renderLogo() string {
+	width := lipgloss.Width(lepkomLogo)
+	logo := logoStyle.Render(lepkomLogo)
+	sub := logoSubStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, "G U N A D A R M A"))
+	return logo + "\n" + sub
+}
 
 // ==================== MESSAGES ====================
 
@@ -213,6 +249,10 @@ type roomsDetailedLoadedMsg struct {
 	err   error
 }
 type sessionsLoadedMsg struct {
+	sessions []SessionDetail
+	err      error
+}
+type sessionsForProvisionLoadedMsg struct {
 	sessions []SessionDetail
 	err      error
 }

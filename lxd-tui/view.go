@@ -7,9 +7,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderBox membungkus konten dalam box bergaya, dengan lebar yang
-// menyesuaikan ukuran terminal (responsive) dan diposisikan di tengah layar
-// kalau ukuran terminal sudah diketahui.
+// renderBox membungkus logo LEPKOM + konten dalam satu box bergaya, dengan
+// lebar yang menyesuaikan ukuran terminal (responsive) dan diposisikan di
+// tengah layar kalau ukuran terminal sudah diketahui.
 func (m model) renderBox(content string) string {
 	width := 56
 	if m.windowWidth > 0 {
@@ -21,8 +21,12 @@ func (m model) renderBox(content string) string {
 			width = 30
 		}
 	}
+	if logoWidth := lipgloss.Width(lepkomLogo); width < logoWidth {
+		width = logoWidth
+	}
 
-	box := boxStyle.Width(width).Render(content)
+	full := renderLogo() + "\n\n" + content
+	box := boxStyle.Width(width).Render(full)
 
 	if m.windowWidth > 0 && m.windowHeight > 0 {
 		return lipgloss.Place(m.windowWidth, m.windowHeight, lipgloss.Center, lipgloss.Center, box)
@@ -30,8 +34,7 @@ func (m model) renderBox(content string) string {
 	return box
 }
 
-// View (bagian dari interface tea.Model) — merender string yang ditampilkan
-// ke terminal, murni berdasarkan isi model, tidak pernah mengubah state apapun.
+// View merender tampilan terminal berdasarkan state saat ini.
 func (m model) View() string {
 	switch m.state {
 
@@ -48,7 +51,7 @@ func (m model) View() string {
 		}
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n%s\n\n%s",
-			titleStyle.Render("Identifikasi Praktikan"),
+			titleStyle.Render("IDENTIFIKASI PRAKTIKAN"),
 			labelStyle.Render(hint),
 			m.inputNama.View(),
 			hintStyle.Render("[Enter] lanjut  •  [Ctrl+C] batal"),
@@ -57,7 +60,7 @@ func (m model) View() string {
 	case screenInputNPM:
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s %s\n\n%s\n%s\n\n%s",
-			titleStyle.Render("Identifikasi Praktikan"),
+			titleStyle.Render("IDENTIFIKASI PRAKTIKAN"),
 			labelStyle.Render("Nama:"), valueStyle.Render(m.inputNama.Value()),
 			labelStyle.Render("Masukkan NPM:"),
 			m.inputNPM.View(),
@@ -77,7 +80,7 @@ func (m model) View() string {
 		}
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s %s\n\n%s\n%s\n%s\n%s",
-			titleStyle.Render("Masuk sebagai "+m.selectedUsername),
+			titleStyle.Render("PRESS START: "+m.selectedUsername),
 			labelStyle.Render("User:"), valueStyle.Render(m.selectedUsername),
 			m.inputPassword.View(),
 			errLine,
@@ -88,7 +91,7 @@ func (m model) View() string {
 	case screenError:
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
-			errStyle.Render("⚠ Terjadi Kesalahan"),
+			errStyle.Render("Terjasdi kesalahan:"),
 			m.errMsg,
 			hintStyle.Render("[Enter] coba lagi  •  [Ctrl+C] keluar"),
 		))
@@ -99,26 +102,26 @@ func (m model) View() string {
 func (m model) viewDashboard() string {
 	info := m.envInfo
 
-	identStatus := valueStyle.Render("Belum diisi")
+	identStatus := hintStyle.Render("Belum diisi")
 	if info.AlreadyIdentified {
-		identStatus = lipgloss.NewStyle().Bold(true).Foreground(accent).Render("Sudah terdaftar (perlu verifikasi)")
+		identStatus = lipgloss.NewStyle().Bold(true).Foreground(gameboyGreen).Render("Sudah terdaftar (perlu verifikasi)")
 	}
 
-	divider := lipgloss.NewStyle().Foreground(muted).Render(strings.Repeat("─", 40))
+	divider := lipgloss.NewStyle().Foreground(snesPurple).Render(strings.Repeat("═", 40))
 
 	body := fmt.Sprintf(
-		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %d\n%s %s\n%s %s\n%s %s\n\n%s",
-		titleStyle.Render("📋 Dashboard Sesi Praktikum"),
+		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n\n%s",
+		titleStyle.Render("DASHBOARD SESI PRAKTIKUM"),
 		subtitleStyle.Render("Sistem Manajemen Environment Praktikum"),
 		divider,
 		labelStyle.Render("Kode Kursus  :"), valueStyle.Render(info.CourseCode),
 		labelStyle.Render("Modul        :"), valueStyle.Render(info.Module),
 		labelStyle.Render("Ruangan      :"), valueStyle.Render(info.Room),
-		labelStyle.Render("Pertemuan ke :"), info.MeetingNumber,
+		labelStyle.Render("Pertemuan ke :"), valueStyle.Render(fmt.Sprintf("%d", info.MeetingNumber)),
 		labelStyle.Render("Tanggal      :"), valueStyle.Render(info.SessionDate),
-		labelStyle.Render("Status Env   :"), valueStyle.Render(info.Status),
+		labelStyle.Render("Status Env   :"), lipgloss.NewStyle().Bold(true).Foreground(gameboyGreen).Render(info.Status),
 		labelStyle.Render("Identifikasi :"), identStatus,
-		hintStyle.Render("[Enter] lanjutkan  •  [Ctrl+C] keluar"),
+		hintStyle.Render("PRESS [ENTER] TO CONTINUE  •  [CTRL+C] EXIT"),
 	)
 
 	return body
@@ -130,12 +133,12 @@ func (m model) viewSelectUser() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Masuk Sebagai"))
+	b.WriteString(titleStyle.Render("SELECT USER"))
 	b.WriteString("\n\n")
 
 	for i, u := range m.localUsers {
 		if i == m.userCursor {
-			b.WriteString(cursorStyle.Render("› " + u.Username))
+			b.WriteString(cursorStyle.Render("> " + u.Username))
 		} else {
 			b.WriteString(menuItemDim.Render("  " + u.Username))
 		}

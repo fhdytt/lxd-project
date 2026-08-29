@@ -7,37 +7,47 @@ import (
 
 // View (bagian dari interface tea.Model) — merender string yang ditampilkan
 // ke terminal, murni berdasarkan isi model, tidak pernah mengubah state apapun.
+// Logo LEPKOM dirender sekali di sini, di atas body layar manapun (menu,
+// tabel, form, hasil, error) — supaya semua layar terasa satu aplikasi yang
+// sama, bukan cuma sekumpulan layar terpisah.
 func (m model) View() string {
+	return boxStyle.Render(renderLogo() + "\n\n" + m.viewBody())
+}
+
+func (m model) viewBody() string {
 	switch m.state {
 	case screenListEnvironments:
-		return boxStyle.Render(m.viewEnvironmentTable())
+		return m.viewEnvironmentTable()
 	case screenRunningCommand:
-		return boxStyle.Render(fmt.Sprintf("%s Memproses, mohon tunggu...", m.spin.View()))
+		return fmt.Sprintf("%s Memproses, mohon tunggu...", m.spin.View())
 	case screenCommandResult:
-		return boxStyle.Render(m.viewCommandResult())
+		return m.viewCommandResult()
 	case screenError:
-		return boxStyle.Render(fmt.Sprintf(
+		return fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
 			errStyle.Render("Terjadi Kesalahan"),
 			m.errMsg,
 			hintStyle.Render("[Enter] kembali"),
-		))
+		)
 	case screenRoomsList:
-		return boxStyle.Render(m.viewRoomsTable())
+		return m.viewRoomsTable()
 	case screenSessionsList:
-		return boxStyle.Render(m.viewSessionsTable())
+		return m.viewSessionsTable()
 	case screenRoomFormNama, screenRoomFormPortPrefix, screenRoomFormCapacity:
-		return boxStyle.Render(m.viewRoomForm())
+		return m.viewRoomForm()
 	case screenSessionFormCourseCode, screenSessionFormMeetingNumber, screenSessionFormDate:
-		return boxStyle.Render(m.viewSessionForm())
+		return m.viewSessionForm()
 	}
 
 	if isMenuScreen(m.state) {
-		return boxStyle.Render(m.viewMenu())
+		return m.viewMenu()
 	}
 	return ""
 }
 
+// viewMenu merender judul, breadcrumb, lalu daftar pilihan menu. Logo LEPKOM
+// tidak lagi dirender di sini — sudah dipindah ke View() supaya tampil di
+// semua layar, bukan cuma layar menu.
 func (m model) viewMenu() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("lxd-Administrator"))
@@ -78,6 +88,8 @@ func (m model) breadcrumb() string {
 		return fmt.Sprintf("Provisioning Ruangan › %s › Start/Stop?", m.selectedRoom)
 	case screenPickModuleForStart:
 		return fmt.Sprintf("Provisioning Ruangan › %s › Pilih Modul", m.selectedRoom)
+	case screenPickSessionForProvision:
+		return fmt.Sprintf("Provisioning Ruangan › %s › %s › Pilih Sesi", m.selectedRoom, m.selectedModule)
 	case screenConfirmProvision:
 		if m.selectedAction == "start" {
 			return fmt.Sprintf("Konfirmasi: START ruangan %s, modul %s?", m.selectedRoom, m.selectedModule)
@@ -103,7 +115,7 @@ func (m model) breadcrumb() string {
 		return "Kelola Ruangan › Pilih untuk Dihapus"
 	case screenRoomDeleteConfirm:
 		return fmt.Sprintf(
-			"Konfirmasi: HAPUS ruangan %s?\n(Akan GAGAL kalau masih ada sesi yang memakai ruangan ini — itu perilaku yang benar, bukan bug.)",
+			"Konfirmasi: HAPUS ruangan %s?\n(Akan GAGAL kalau masih ada sesi yang memakai ruangan ini)",
 			m.editingRoomOriginalNama,
 		)
 
@@ -120,7 +132,7 @@ func (m model) breadcrumb() string {
 	case screenSessionPickForDelete:
 		return "Kelola Sesi › Pilih untuk Dihapus"
 	case screenSessionDeleteConfirm:
-		return "Konfirmasi: HAPUS sesi ini?\nSEMUA environment yang terhubung ke sesi ini akan IKUT TERHAPUS dari database (container LXD-nya sendiri TIDAK ikut terhapus otomatis — jadi bisa jadi 'yatim', tidak lagi tercatat)."
+		return "Konfirmasi: HAPUS sesi ini?\nSEMUA environment yang terhubung ke sesi ini akan IKUT TERHAPUS dari database"
 	}
 	return ""
 }
