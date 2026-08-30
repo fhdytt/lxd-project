@@ -91,7 +91,7 @@ func (m model) View() string {
 	case screenError:
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n\n%s",
-			errStyle.Render("Terjasdi kesalahan:"),
+			errStyle.Render("Terjadi kesalahan:"),
 			m.errMsg,
 			hintStyle.Render("[Enter] coba lagi  •  [Ctrl+C] keluar"),
 		))
@@ -104,10 +104,10 @@ func (m model) viewDashboard() string {
 
 	identStatus := hintStyle.Render("Belum diisi")
 	if info.AlreadyIdentified {
-		identStatus = lipgloss.NewStyle().Bold(true).Foreground(gameboyGreen).Render("Sudah terdaftar (perlu verifikasi)")
+		identStatus = lipgloss.NewStyle().Bold(true).Foreground(leafGreen).Render("Sudah terdaftar (perlu verifikasi)")
 	}
 
-	divider := lipgloss.NewStyle().Foreground(snesPurple).Render(strings.Repeat("═", 40))
+	divider := lipgloss.NewStyle().Foreground(slateMist).Render(strings.Repeat("═", 40))
 
 	body := fmt.Sprintf(
 		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n\n%s",
@@ -119,7 +119,7 @@ func (m model) viewDashboard() string {
 		labelStyle.Render("Ruangan      :"), valueStyle.Render(info.Room),
 		labelStyle.Render("Pertemuan ke :"), valueStyle.Render(fmt.Sprintf("%d", info.MeetingNumber)),
 		labelStyle.Render("Tanggal      :"), valueStyle.Render(info.SessionDate),
-		labelStyle.Render("Status Env   :"), lipgloss.NewStyle().Bold(true).Foreground(gameboyGreen).Render(info.Status),
+		labelStyle.Render("Status Env   :"), lipgloss.NewStyle().Bold(true).Foreground(leafGreen).Render(info.Status),
 		labelStyle.Render("Identifikasi :"), identStatus,
 		hintStyle.Render("PRESS [ENTER] TO CONTINUE  •  [CTRL+C] EXIT"),
 	)
@@ -138,7 +138,7 @@ func (m model) viewSelectUser() string {
 
 	for i, u := range m.localUsers {
 		if i == m.userCursor {
-			b.WriteString(cursorStyle.Render("> " + u.Username))
+			b.WriteString(cursorStyle.Render("▶ " + u.Username))
 		} else {
 			b.WriteString(menuItemDim.Render("  " + u.Username))
 		}

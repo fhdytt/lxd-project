@@ -3,14 +3,20 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // View (bagian dari interface tea.Model) — merender string yang ditampilkan
 // ke terminal, murni berdasarkan isi model, tidak pernah mengubah state apapun.
-// Logo LEPKOM dirender sekali di sini, di atas body layar manapun (menu,
-// tabel, form, hasil, error) — supaya semua layar terasa satu aplikasi yang
-// sama, bukan cuma sekumpulan layar terpisah.
+// Layar bertipe menu (main menu, kelola ruangan, kelola sesi, dst) punya
+// layout dua panel ala JRPG (viewMenu) dengan window/border sendiri, jadi
+// tidak dibungkus boxStyle tunggal seperti layar lain (tabel, form, hasil,
+// error).
 func (m model) View() string {
+	if isMenuScreen(m.state) {
+		return m.viewMenu()
+	}
 	return boxStyle.Render(renderLogo() + "\n\n" + m.viewBody())
 }
 
@@ -37,40 +43,57 @@ func (m model) viewBody() string {
 		return m.viewRoomForm()
 	case screenSessionFormCourseCode, screenSessionFormMeetingNumber, screenSessionFormDate:
 		return m.viewSessionForm()
-	}
-
-	if isMenuScreen(m.state) {
-		return m.viewMenu()
+	case screenBulkFormCourseCode, screenBulkFormStartMeeting, screenBulkFormCount, screenBulkFormStartDate, screenBulkFormInterval:
+		return m.viewBulkForm()
 	}
 	return ""
 }
 
-// viewMenu merender judul, breadcrumb, lalu daftar pilihan menu. Logo LEPKOM
-// tidak lagi dirender di sini — sudah dipindah ke View() supaya tampil di
-// semua layar, bukan cuma layar menu.
-func (m model) viewMenu() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("lxd-Administrator"))
-	b.WriteString("\n\n")
-	b.WriteString(labelStyle.Render(m.breadcrumb()))
-	b.WriteString("\n\n")
-
-	if len(m.menuItems) == 0 {
-		b.WriteString(fmt.Sprintf("%s Memuat...", m.spin.View()))
+// maxLineWidth mengembalikan lebar (dalam kolom terminal) dari baris
+// terpanjang di antara semua blok teks yang diberikan — dipakai supaya
+// garis pembatas dan box menu selalu pas dengan konten, tidak pernah
+// memaksa wrap pada teks yang panjang (nama menu, label sesi dinamis, dst).
+func maxLineWidth(blocks ...string) int {
+	max := 0
+	for _, block := range blocks {
+		for _, line := range strings.Split(block, "\n") {
+			if w := lipgloss.Width(line); w > max {
+				max = w
+			}
+		}
 	}
+	return max
+}
 
+// viewMenu merender layar menu sebagai SATU box tunggal (judul+breadcrumb,
+// garis pembatas, daftar item, garis pembatas, footer kontrol). Lebar box
+// tidak dipatok angka tetap — dihitung otomatis dari baris terpanjang di
+// dalamnya (maxLineWidth), supaya menu apa pun (item pendek di menu utama,
+// atau label sesi dinamis yang panjang) selalu tampil rapi tanpa wrap.
+func (m model) viewMenu() string {
+	header := titleStyle.Render("LXD - ADMINISTRATOR") + "\n" + hintStyle.Render(strings.ToUpper(m.breadcrumb()))
+
+	var menuLines strings.Builder
+	if len(m.menuItems) == 0 {
+		menuLines.WriteString(fmt.Sprintf("%s Memuat...", m.spin.View()))
+	}
 	for i, item := range m.menuItems {
 		if i == m.menuCursor {
-			b.WriteString(cursorStyle.Render("› " + item))
+			menuLines.WriteString(cursorStyle.Render("> " + item))
 		} else {
-			b.WriteString(dimStyle.Render("  " + item))
+			menuLines.WriteString(dimStyle.Render("  " + item))
 		}
-		b.WriteString("\n")
+		menuLines.WriteString("\n")
 	}
+	menu := strings.TrimRight(menuLines.String(), "\n")
 
-	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("[↑/↓] pilih  •  [Enter] konfirmasi  •  [Esc] kembali  •  [Ctrl+C] keluar"))
-	return b.String()
+	footer := hintStyle.Render("[^/v] PILIH  -  [ENTER] OK  -  [ESC] KEMBALI  -  [CTRL+C] KELUAR")
+
+	width := maxLineWidth(header, menu, footer)
+	divider := dimStyle.Render(strings.Repeat("─", width))
+
+	body := strings.Join([]string{header, divider, menu, divider, footer}, "\n")
+	return boxStyle.Render(renderLogo() + "\n\n" + body)
 }
 
 // breadcrumb menampilkan "kamu sedang di mana" — penting karena banyak
@@ -79,17 +102,17 @@ func (m model) viewMenu() string {
 func (m model) breadcrumb() string {
 	switch m.state {
 	case screenMainMenu:
-		return "Menu Utama"
+		return " Menu Utama"
 	case screenPickRoomForList:
 		return "Lihat Daftar Environment › Pilih Ruangan"
 	case screenPickRoomForProvision:
-		return "Provisioning Ruangan › Pilih Ruangan"
+		return "Persiapan Ruangan › Pilih Ruangan"
 	case screenPickProvisionAction:
-		return fmt.Sprintf("Provisioning Ruangan › %s › Start/Stop?", m.selectedRoom)
+		return fmt.Sprintf("Persiapan Ruangan › %s › Start/Stop?", m.selectedRoom)
 	case screenPickModuleForStart:
-		return fmt.Sprintf("Provisioning Ruangan › %s › Pilih Modul", m.selectedRoom)
+		return fmt.Sprintf("Persiapan Ruangan › %s › Pilih Modul", m.selectedRoom)
 	case screenPickSessionForProvision:
-		return fmt.Sprintf("Provisioning Ruangan › %s › %s › Pilih Sesi", m.selectedRoom, m.selectedModule)
+		return fmt.Sprintf("Persiapan Ruangan › %s › %s › Pilih Sesi", m.selectedRoom, m.selectedModule)
 	case screenConfirmProvision:
 		if m.selectedAction == "start" {
 			return fmt.Sprintf("Konfirmasi: START ruangan %s, modul %s?", m.selectedRoom, m.selectedModule)
@@ -107,6 +130,16 @@ func (m model) breadcrumb() string {
 		}
 		return fmt.Sprintf("Konfirmasi: RESET container %s?", m.selectedContainer)
 
+	case screenPickRoomForNextMeeting:
+		return "Ganti Sesi › Pilih Ruangan"
+	case screenPickSessionForNextMeeting:
+		return fmt.Sprintf("Ganti Sesi › %s (modul %s) › Pilih Sesi Baru", m.selectedRoom, m.selectedModule)
+	case screenConfirmNextMeeting:
+		return fmt.Sprintf(
+			"Konfirmasi: reset SEMUA container di %s dan pindahkan ke sesi baru?\n",
+			m.selectedRoom,
+		)
+
 	case screenRoomsMenu:
 		return "Kelola Ruangan"
 	case screenRoomPickForEdit:
@@ -115,7 +148,7 @@ func (m model) breadcrumb() string {
 		return "Kelola Ruangan › Pilih untuk Dihapus"
 	case screenRoomDeleteConfirm:
 		return fmt.Sprintf(
-			"Konfirmasi: HAPUS ruangan %s?\n(Akan GAGAL kalau masih ada sesi yang memakai ruangan ini)",
+			"Konfirmasi: HAPUS ruangan %s?\n",
 			m.editingRoomOriginalNama,
 		)
 
@@ -132,7 +165,14 @@ func (m model) breadcrumb() string {
 	case screenSessionPickForDelete:
 		return "Kelola Sesi › Pilih untuk Dihapus"
 	case screenSessionDeleteConfirm:
-		return "Konfirmasi: HAPUS sesi ini?\nSEMUA environment yang terhubung ke sesi ini akan IKUT TERHAPUS dari database"
+		return "Konfirmasi: HAPUS sesi ini?\nSEMUA environment yang terhubung ke sesi ini akan TERHAPUS dari database"
+
+	case screenBulkPickRoom:
+		return "Tambah Banyak Sesi › Pilih Ruangan"
+	case screenBulkPickModule:
+		return fmt.Sprintf("Tambah Banyak Sesi › %s › Pilih Modul", m.bulkRoom)
+	case screenBulkConfirm:
+		return "Konfirmasi: buat semua sesi sesuai isian di atas?"
 	}
 	return ""
 }
@@ -143,7 +183,7 @@ func (m model) viewEnvironmentTable() string {
 	b.WriteString("\n\n")
 
 	if len(m.envRows) == 0 {
-		b.WriteString(labelStyle.Render("Tidak ada environment aktif di ruangan ini."))
+		b.WriteString(labelStyle.Render("Tidak ada environment aktif di ruangan ini"))
 	} else {
 		b.WriteString(fmt.Sprintf("%-16s %-6s %-10s %-8s %-20s %s\n", "CONTAINER", "PORT", "STATUS", "SNAPSHOT", "PRAKTIKAN", "NPM"))
 		b.WriteString(strings.Repeat("─", 78) + "\n")
@@ -168,7 +208,7 @@ func (m model) viewEnvironmentTable() string {
 func (m model) viewCommandResult() string {
 	status := okStyle.Render("Berhasil")
 	if m.commandFailed {
-		status = errStyle.Render("Gagal (cek pesan di bawah)")
+		status = errStyle.Render("Gagal")
 	}
 	return fmt.Sprintf(
 		"%s\n\n%s\n\n%s\n\n%s",
@@ -185,7 +225,7 @@ func (m model) viewRoomsTable() string {
 	b.WriteString("\n\n")
 
 	if len(m.roomsDetailed) == 0 {
-		b.WriteString(labelStyle.Render("Belum ada ruangan."))
+		b.WriteString(labelStyle.Render("Belum ada ruangan"))
 	} else {
 		b.WriteString(fmt.Sprintf("%-10s %-14s %s\n", "NAMA", "PORT PREFIX", "KAPASITAS"))
 		b.WriteString(strings.Repeat("─", 40) + "\n")
@@ -205,9 +245,9 @@ func (m model) viewSessionsTable() string {
 	b.WriteString("\n\n")
 
 	if len(m.sessionsDetailed) == 0 {
-		b.WriteString(labelStyle.Render("Belum ada sesi."))
+		b.WriteString(labelStyle.Render("Belum ada sesi"))
 	} else {
-		b.WriteString(fmt.Sprintf("%-8s %-16s %-10s %-4s %-12s %s\n", "RUANGAN", "COURSE CODE", "MODUL", "KE-", "TANGGAL", "STATUS"))
+		b.WriteString(fmt.Sprintf("%-8s %-16s %-10s %-4s %-12s %s\n", "RUANGAN", "COURSE CODE", "MODUL", "PERTEMUAN", "TANGGAL", "STATUS"))
 		b.WriteString(strings.Repeat("─", 72) + "\n")
 		for _, s := range m.sessionsDetailed {
 			b.WriteString(fmt.Sprintf("%-8s %-16s %-10s %-4d %-12s %s\n", s.RoomNama, s.CourseCode, s.ModuleCode, s.MeetingNumber, s.SessionDate, s.Status))
@@ -230,7 +270,7 @@ func (m model) viewRoomForm() string {
 		labelStyle.Render("Nama ruangan:"), m.roomInputNama.View(),
 		labelStyle.Render("Port prefix (2 digit):"), m.roomInputPortPrefix.View(),
 		labelStyle.Render("Kapasitas:"), m.roomInputCapacity.View(),
-		hintStyle.Render("[Enter] lanjut  •  [Esc] kembali  •  [Ctrl+C] keluar"),
+		hintStyle.Render("[Enter] lanjut  -  [Esc] kembali  -  [Ctrl+C] keluar"),
 	)
 }
 
@@ -253,10 +293,30 @@ func (m model) viewSessionForm() string {
 		"%s\n\n%s%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s",
 		titleStyle.Render(title),
 		context,
-		labelStyle.Render("Course code :"), m.sessionInputCourseCode.View(),
+		labelStyle.Render("Cohort Code:"), m.sessionInputCourseCode.View(),
 		labelStyle.Render("Pertemuan ke-:"), m.sessionInputMeetingNumber.View(),
 		labelStyle.Render("Tanggal (format YYYY-MM-DD):"), m.sessionInputDate.View(),
-		hintStyle.Render("[Enter] lanjut  •  [Esc] kembali  •  [Ctrl+C] keluar"),
+		hintStyle.Render("[Enter] lanjut  -  [Esc] kembali  -  [Ctrl+C] keluar"),
+	)
+}
+
+func (m model) viewBulkForm() string {
+	context := fmt.Sprintf(
+		"%s %s   %s %s\n\n",
+		labelStyle.Render("Ruangan:"), m.bulkRoom,
+		labelStyle.Render("Modul:"), m.bulkModule,
+	)
+
+	return fmt.Sprintf(
+		"%s\n\n%s%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n\n%s",
+		titleStyle.Render("Tambah Banyak Sesi Sekaligus"),
+		context,
+		labelStyle.Render("Cohort Code:"), m.bulkInputCourseCode.View(),
+		labelStyle.Render("Pertemuan Di mulai:"), m.bulkInputStartMeeting.View(),
+		labelStyle.Render("Jumlah Pertemuan:"), m.bulkInputCount.View(),
+		labelStyle.Render("Tanggal pertemuan pertama (YYYY-MM-DD):"), m.bulkInputStartDate.View(),
+		labelStyle.Render("Jarak antar pertemuan dalam hari:"), m.bulkInputInterval.View(),
+		hintStyle.Render("[Enter] lanjut  -  [Esc] kembali  -  [Ctrl+C] keluar"),
 	)
 }
 
