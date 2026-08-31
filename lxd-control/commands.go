@@ -298,3 +298,69 @@ func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 		return commandDoneMsg{output: output.String(), err: errFromBool(failed)}
 	}
 }
+
+// ==================== COMMANDS: ganti sesi ruangan (pertemuan berikutnya) ====================
+// Dipakai saat ruangan yang SAMA dipakai kelas/pertemuan yang berbeda tanpa
+// perlu hapus-bikin ulang container — cukup dibersihkan (reset) dan
+// "dipindah" nempelnya ke sesi baru. Modul (netbegin/netadmin) container yang
+// sudah ada TIDAK berubah — kalau perlu ganti modul, harus lewat stop+start biasa.
+
+func loadRoomModuleCmd(db *pgxpool.Pool, roomNama string) tea.Cmd {
+	return func() tea.Msg {
+		module, err := GetRoomCurrentModule(context.Background(), db, roomNama)
+		return roomModuleLoadedMsg{module: module, err: err}
+	}
+}
+
+func nextMeetingRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, newSessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		names, err := ListContainerNamesForRoom(ctx, db, roomNama)
+		if err != nil {
+			return commandDoneMsg{output: err.Error(), err: err}
+		}
+
+		var output strings.Builder
+		failed := false
+
+		if len(names) == 0 {
+			output.WriteString("Tidak ada container di ruangan ini.\n")
+		}
+
+		for _, name := range names {
+			if err := ResetContainer(cfg, name); err != nil {
+				output.WriteString(fmt.Sprintf("%s: GAGAL reset — %v\n", name, err))
+				failed = true
+				continue
+			}
+			if err := UnlinkPraktikan(ctx, db, name); err != nil {
+				output.WriteString(fmt.Sprintf("%s: reset ok, tapi gagal lepas identitas lama — %v\n", name, err))
+				failed = true
+				continue
+			}
+			if err := RepointSession(ctx, db, name, newSessionID); err != nil {
+				output.WriteString(fmt.Sprintf("%s: reset+lepas identitas ok, tapi gagal pindah sesi — %v\n", name, err))
+				failed = true
+				continue
+			}
+			output.WriteString(fmt.Sprintf("%s: siap untuk sesi/pertemuan baru\n", name))
+		}
+
+		return commandDoneMsg{output: output.String(), err: errFromBool(failed)}
+	}
+}
+
+// createSessionsBulkCmd membuat banyak sesi sekaligus (lihat CreateSessionsBulk
+// di db.go) — dipakai fitur "Tambah Banyak Sesi" supaya admin tidak perlu
+// input satu-satu untuk course dengan banyak pertemuan yang pakai container.
+func createSessionsBulkCmd(db *pgxpool.Pool, courseCode, room, module string, startMeetingNumber, meetingCount, intervalDays int, startDate string) tea.Cmd {
+	return func() tea.Msg {
+		err := CreateSessionsBulk(context.Background(), db, courseCode, room, module, startMeetingNumber, meetingCount, intervalDays, startDate)
+		output := fmt.Sprintf("Berhasil membuat %d sesi untuk course_code=%s (pertemuan %d s.d. %d).",
+			meetingCount, courseCode, startMeetingNumber, startMeetingNumber+meetingCount-1)
+		if err != nil {
+			output = err.Error()
+		}
+		return commandDoneMsg{output: output, err: err}
+	}
+}

@@ -118,6 +118,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.menuCursor = 0
 		return m, nil
 
+	case roomModuleLoadedMsg:
+		if msg.err != nil {
+			return m.toError(msg.err)
+		}
+		m.selectedModule = msg.module
+		return m, loadSessionsForProvisionCmd(m.db, m.selectedRoom, m.selectedModule)
+
 	case roomMutatedMsg:
 		if msg.err != nil {
 			m.commandOutput = "Gagal: " + msg.err.Error()
@@ -193,6 +200,17 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSessionFormMeetingNumber(msg)
 	case screenSessionFormDate:
 		return m.handleSessionFormDate(msg)
+
+	case screenBulkFormCourseCode:
+		return m.handleBulkFormCourseCode(msg)
+	case screenBulkFormStartMeeting:
+		return m.handleBulkFormStartMeeting(msg)
+	case screenBulkFormCount:
+		return m.handleBulkFormCount(msg)
+	case screenBulkFormStartDate:
+		return m.handleBulkFormStartDate(msg)
+	case screenBulkFormInterval:
+		return m.handleBulkFormInterval(msg)
 	}
 
 	return m, nil
@@ -204,9 +222,11 @@ func isMenuScreen(s screenState) bool {
 		screenPickProvisionAction, screenPickModuleForStart, screenPickSessionForProvision, screenConfirmProvision,
 		screenPickRoomForReset, screenPickResetMode, screenPickContainerForReset,
 		screenConfirmReset,
+		screenPickRoomForNextMeeting, screenPickSessionForNextMeeting, screenConfirmNextMeeting,
 		screenRoomsMenu, screenRoomPickForEdit, screenRoomPickForDelete, screenRoomDeleteConfirm,
 		screenSessionsMenu, screenSessionPickRoom, screenSessionPickModule, screenSessionPickStatus,
-		screenSessionPickForEdit, screenSessionPickForDelete, screenSessionDeleteConfirm:
+		screenSessionPickForEdit, screenSessionPickForDelete, screenSessionDeleteConfirm,
+		screenBulkPickRoom, screenBulkPickModule, screenBulkConfirm:
 		return true
 	}
 	return false
@@ -239,13 +259,16 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 			m.state = screenPickRoomForProvision
 			return m, loadRoomsCmd(m.db)
 		case 2:
-			m.state = screenPickRoomForReset
+			m.state = screenPickRoomForNextMeeting
 			return m, loadRoomsCmd(m.db)
 		case 3:
-			return m.gotoRoomsMenu()
+			m.state = screenPickRoomForReset
+			return m, loadRoomsCmd(m.db)
 		case 4:
-			return m.gotoSessionsMenu()
+			return m.gotoRoomsMenu()
 		case 5:
+			return m.gotoSessionsMenu()
+		case 6:
 			return m, tea.Quit
 		}
 
@@ -333,6 +356,29 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 		}
 		return m, resetContainerCmd(m.cfg, m.db, m.selectedContainer)
 
+	// ---------- Ganti Sesi Ruangan (pertemuan/kelas berikutnya) ----------
+
+	case screenPickRoomForNextMeeting:
+		m.selectedRoom = selected
+		m.state = screenPickSessionForNextMeeting
+		m.menuItems = nil // kosongkan dulu -> viewMenu() otomatis tampilkan "Memuat..."
+		return m, loadRoomModuleCmd(m.db, m.selectedRoom)
+
+	case screenPickSessionForNextMeeting:
+		m.selectedSessionID = m.provisionSessionIDs[m.menuCursor]
+		m.state = screenConfirmNextMeeting
+		m.menuItems = []string{"Ya, jalankan", "Batal"}
+		m.menuCursor = 0
+		return m, nil
+
+	case screenConfirmNextMeeting:
+		if m.menuCursor != 0 {
+			return m.backToMainMenu()
+		}
+		m.state = screenRunningCommand
+		m.returnTo = model.backToMainMenu
+		return m, nextMeetingRoomCmd(m.cfg, m.db, m.selectedRoom, m.selectedSessionID)
+
 	// ---------- Kelola Ruangan ----------
 
 	case screenRoomsMenu:
@@ -398,14 +444,33 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 			m.state = screenSessionPickRoom
 			return m, loadRoomsCmd(m.db)
 		case 2:
+			m.bulkInputCourseCode.SetValue("")
+			m.bulkInputStartMeeting.SetValue("")
+			m.bulkInputCount.SetValue("")
+			m.bulkInputStartDate.SetValue("")
+			m.bulkInputInterval.SetValue("")
+			m.state = screenBulkPickRoom
+			return m, loadRoomsCmd(m.db)
+		case 3:
 			m.state = screenSessionPickForEdit
 			return m, loadSessionsCmd(m.db)
-		case 3:
+		case 4:
 			m.state = screenSessionPickForDelete
 			return m, loadSessionsCmd(m.db)
-		case 4:
+		case 5:
 			return m.backToMainMenu()
 		}
+
+	case screenBulkPickRoom:
+		m.bulkRoom = selected
+		m.state = screenBulkPickModule
+		return m, loadModulesCmd(m.db)
+
+	case screenBulkPickModule:
+		m.bulkModule = m.modules[m.menuCursor].Code
+		m.bulkInputCourseCode.Focus()
+		m.state = screenBulkFormCourseCode
+		return m, nil
 
 	case screenSessionPickRoom:
 		m.sessionRoom = selected
@@ -465,6 +530,32 @@ func (m model) onMenuSelect() (tea.Model, tea.Cmd) {
 		m.state = screenRunningCommand
 		m.returnTo = model.gotoSessionsMenu
 		return m, deleteSessionCmd(m.db, m.editingSessionID)
+
+	case screenBulkConfirm:
+		if m.menuCursor != 0 {
+			return m.gotoSessionsMenu()
+		}
+		startMeeting, err1 := strconv.Atoi(m.bulkInputStartMeeting.Value())
+		count, err2 := strconv.Atoi(m.bulkInputCount.Value())
+		interval, err3 := strconv.Atoi(m.bulkInputInterval.Value())
+		if err1 != nil || err2 != nil || err3 != nil {
+			m.errMsg = "Pertemuan mulai dari, jumlah, dan interval hari harus berupa angka."
+			m.state = screenError
+			m.returnTo = model.gotoSessionsMenu
+			return m, nil
+		}
+		m.state = screenRunningCommand
+		m.returnTo = model.gotoSessionsMenu
+		return m, createSessionsBulkCmd(
+			m.db,
+			m.bulkInputCourseCode.Value(),
+			m.bulkRoom,
+			m.bulkModule,
+			startMeeting,
+			count,
+			interval,
+			m.bulkInputStartDate.Value(),
+		)
 	}
 
 	return m, nil
@@ -596,6 +687,101 @@ func (m model) handleSessionFormDate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.sessionInputDate, cmd = m.sessionInputDate.Update(msg)
+	return m, cmd
+}
+
+// ==================== Form Bulk Create Sesi (text input step-by-step) ====================
+
+func (m model) handleBulkFormCourseCode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "enter" && m.bulkInputCourseCode.Value() != "" {
+		m.bulkInputCourseCode.Blur()
+		m.bulkInputStartMeeting.Focus()
+		m.state = screenBulkFormStartMeeting
+		return m, nil
+	}
+	if key == "esc" {
+		return m.gotoSessionsMenu()
+	}
+	var cmd tea.Cmd
+	m.bulkInputCourseCode, cmd = m.bulkInputCourseCode.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleBulkFormStartMeeting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "enter" && m.bulkInputStartMeeting.Value() != "" {
+		m.bulkInputStartMeeting.Blur()
+		m.bulkInputCount.Focus()
+		m.state = screenBulkFormCount
+		return m, nil
+	}
+	if key == "esc" {
+		m.bulkInputStartMeeting.Blur()
+		m.bulkInputCourseCode.Focus()
+		m.state = screenBulkFormCourseCode
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.bulkInputStartMeeting, cmd = m.bulkInputStartMeeting.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleBulkFormCount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "enter" && m.bulkInputCount.Value() != "" {
+		m.bulkInputCount.Blur()
+		m.bulkInputStartDate.Focus()
+		m.state = screenBulkFormStartDate
+		return m, nil
+	}
+	if key == "esc" {
+		m.bulkInputCount.Blur()
+		m.bulkInputStartMeeting.Focus()
+		m.state = screenBulkFormStartMeeting
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.bulkInputCount, cmd = m.bulkInputCount.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleBulkFormStartDate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "enter" && m.bulkInputStartDate.Value() != "" {
+		m.bulkInputStartDate.Blur()
+		m.bulkInputInterval.Focus()
+		m.state = screenBulkFormInterval
+		return m, nil
+	}
+	if key == "esc" {
+		m.bulkInputStartDate.Blur()
+		m.bulkInputCount.Focus()
+		m.state = screenBulkFormCount
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.bulkInputStartDate, cmd = m.bulkInputStartDate.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleBulkFormInterval(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "enter" && m.bulkInputInterval.Value() != "" {
+		m.bulkInputInterval.Blur()
+		m.state = screenBulkConfirm
+		m.menuItems = []string{"Ya, buat semua sesi", "Batal"}
+		m.menuCursor = 0
+		return m, nil
+	}
+	if key == "esc" {
+		m.bulkInputInterval.Blur()
+		m.bulkInputStartDate.Focus()
+		m.state = screenBulkFormStartDate
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.bulkInputInterval, cmd = m.bulkInputInterval.Update(msg)
 	return m, cmd
 }
 

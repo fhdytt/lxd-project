@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ==================== STATE ====================
-
 type screenState int
 
 const (
@@ -29,7 +27,12 @@ const (
 	screenConfirmReset
 	screenError
 
-	// --- Kelola Ruangan (CRUD) ---
+	//  Ganti Sesi Ruangan
+	screenPickRoomForNextMeeting
+	screenPickSessionForNextMeeting
+	screenConfirmNextMeeting
+
+	//  Kelola Ruangan (CRUD) 
 	screenRoomsMenu
 	screenRoomsList
 	screenRoomFormNama
@@ -39,7 +42,7 @@ const (
 	screenRoomPickForDelete
 	screenRoomDeleteConfirm
 
-	// --- Kelola Sesi (CRUD) ---
+	//  Kelola Sesi (CRUD) 
 	screenSessionsMenu
 	screenSessionsList
 	screenSessionPickRoom
@@ -51,6 +54,16 @@ const (
 	screenSessionPickForEdit
 	screenSessionPickForDelete
 	screenSessionDeleteConfirm
+
+	//  Tambah Banyak Sesi
+	screenBulkPickRoom
+	screenBulkPickModule
+	screenBulkFormCourseCode
+	screenBulkFormStartMeeting
+	screenBulkFormCount
+	screenBulkFormStartDate
+	screenBulkFormInterval
+	screenBulkConfirm
 )
 
 // Daftar menu tetap, dipakai ulang di beberapa tempat supaya tidak perlu
@@ -58,7 +71,8 @@ const (
 // sinkron antar tempat).
 var mainMenuItems = []string{
 	"Lihat Daftar Environment",
-	"Provisioning Ruangan",
+	"Persiapan Ruangan",
+	"Reset Sesi ",
 	"Reset Environment",
 	"Kelola Ruangan",
 	"Kelola Sesi",
@@ -76,6 +90,7 @@ var roomsMenuItems = []string{
 var sessionsMenuItems = []string{
 	"Lihat Daftar Sesi",
 	"Tambah Sesi",
+	"Tambah Banyak Sesi",
 	"Edit Sesi",
 	"Hapus Sesi",
 	"Kembali ke Menu Utama",
@@ -121,7 +136,7 @@ type model struct {
 	commandOutput string
 	commandFailed bool
 
-	// --- Kelola Ruangan ---
+	//  Kelola Ruangan 
 	roomsDetailed           []RoomDetail
 	roomFormMode            string // "create" atau "update"
 	roomInputNama           textinput.Model
@@ -129,7 +144,7 @@ type model struct {
 	roomInputCapacity       textinput.Model
 	editingRoomOriginalNama string
 
-	// --- Kelola Sesi ---
+	//  Kelola Sesi 
 	sessionsDetailed          []SessionDetail
 	sessionPickIDs            []string // paralel dengan menuItems saat pick-for-edit/delete
 	sessionFormMode           string   // "create" atau "update"
@@ -140,6 +155,15 @@ type model struct {
 	sessionModule             string // dipilih sebelum form, hanya saat create
 	sessionStatus             string
 	editingSessionID          string
+
+	//  Tambah Banyak Sesi Sekaligus 
+	bulkRoom              string
+	bulkModule            string
+	bulkInputCourseCode   textinput.Model
+	bulkInputStartMeeting textinput.Model
+	bulkInputCount        textinput.Model
+	bulkInputStartDate    textinput.Model
+	bulkInputInterval     textinput.Model
 }
 
 func initialModel(cfg *Config, db *pgxpool.Pool) model {
@@ -167,40 +191,54 @@ func initialModel(cfg *Config, db *pgxpool.Pool) model {
 		roomInputPortPrefix: newInput("Port prefix 2 digit, misal 21"),
 		roomInputCapacity:   newInput("Kapasitas, misal 5"),
 
-		sessionInputCourseCode:    newInput("Contohh :1CNAR261442K"),
-		sessionInputMeetingNumber: newInput("Pertemuan ke-"),
+		sessionInputCourseCode:    newInput("Contoh: 1NFBR261131K"),
+		sessionInputMeetingNumber: newInput("Contoh: 2"),
 		sessionInputDate:          newInput("YYYY-MM-DD"),
+
+		bulkInputCourseCode:   newInput("Contoh: 1NFBR261131K"),
+		bulkInputStartMeeting: newInput("Contoh: 2"),
+		bulkInputCount:        newInput("Contoh: 6"),
+		bulkInputStartDate:    newInput("Tanggal pertemuan pertaman(YYYY-MM-DD)"),
+		bulkInputInterval:     newInput("Contoh: 7 (dalam hari)"),
 	}
 }
 
 // ==================== STYLES ====================
+//
+// Palet warna "retro-arcade" — pink/oranye/kuning, sengaja beda total dari
+// palet Dracula yang dipakai di lxd-tui, dan tidak memakai cyan sama sekali:
+//   dark      #1A1A2E  indigo gelap — teks di dalam pill accent (kontras
+//                       gelap di atas oranye terang)
+//   border    #E94560  pink/merah cerah — border box, bingkai mencolok ala
+//                       mesin arcade
+//   secondary #FFD23F  kuning emas — label / hint / item menu nonaktif
+//   accent    #F39C12  oranye — title, background pill cursor
+//   base      #F5F5F5  putih hangat — teks utama/value
+//   success   #2ECC71  hijau — indikator status positif
+//   danger    #FF3B30  merah terang — error (sengaja beda hue dari border
+//                       pink, biar makna "error" tidak ketuker dengan bingkai)
 var (
-	base      = lipgloss.Color("#D8DBE2")
-	secondary = lipgloss.Color("#A9BCD0")
-	accent    = lipgloss.Color("#58A4B0")
-	border    = lipgloss.Color("#373F51")
-	dark      = lipgloss.Color("#1B1B1E")
-
-	// danger & success sengaja dipertahankan merah/hijau standar (bukan bagian
-	// dari palet LEPKOM) supaya makna "error" / "berhasil" tetap universal
-	// dan tidak tertukar dengan warna aksen biasa.
-	danger  = lipgloss.Color("203")
-	success = lipgloss.Color("42")
+	dark      = lipgloss.Color("#1A1A2E")
+	border    = lipgloss.Color("#E94560")
+	secondary = lipgloss.Color("#FFD23F")
+	accent    = lipgloss.Color("#F39C12")
+	base      = lipgloss.Color("#F5F5F5")
+	success   = lipgloss.Color("#2ECC71")
+	danger    = lipgloss.Color("#FF3B30")
 
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent).Padding(0, 1)
-	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 3)
+	boxStyle   = lipgloss.NewStyle().Border(lipgloss.DoubleBorder()).BorderForeground(border).Padding(1, 3)
 	hintStyle  = lipgloss.NewStyle().Foreground(secondary).Italic(true)
 	errStyle   = lipgloss.NewStyle().Foreground(danger).Bold(true)
 	okStyle    = lipgloss.NewStyle().Foreground(success).Bold(true)
 
-	// cursorStyle sekarang dirender sebagai "pill" berwarna solid (teks gelap
-	// di atas background accent) supaya item yang sedang dipilih terasa lebih
-	// interaktif, bukan cuma teks yang berubah warna.
+	// cursorStyle: pill solid (teks gelap di atas background oranye) supaya
+	// item yang sedang dipilih terasa mencolok & interaktif.
 	cursorStyle = lipgloss.NewStyle().Foreground(dark).Background(accent).Bold(true).Padding(0, 1)
 	dimStyle    = lipgloss.NewStyle().Foreground(secondary)
 	labelStyle  = lipgloss.NewStyle().Foreground(base)
 
-	logoColor    = lipgloss.Color("#2C4533")
+	logoColor    = lipgloss.Color("#F8F8F2")
 	logoStyle    = lipgloss.NewStyle().Foreground(logoColor).Italic(true)
 	logoSubStyle = lipgloss.NewStyle().Foreground(secondary).Bold(true)
 )
@@ -213,7 +251,7 @@ const lepkomLogo = `     __       ______  ____    _  __  ____    __  ___
   /  /___  / /___  / ____/ / /| | / /_/ / / /  / /   
  /______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    `
 
-// renderLogo merender logo ASCII LEPKOM (italic, warna accent) dengan
+// renderLogo merender logo ASCII LEPKOM (italic, warna hijau tua) dengan
 // subjudul "G U N A D A R M A" yang otomatis dipusatkan sesuai lebar logo.
 func renderLogo() string {
 	width := lipgloss.Width(lepkomLogo)
@@ -255,6 +293,10 @@ type sessionsLoadedMsg struct {
 type sessionsForProvisionLoadedMsg struct {
 	sessions []SessionDetail
 	err      error
+}
+type roomModuleLoadedMsg struct {
+	module string
+	err    error
 }
 type roomMutatedMsg struct {
 	err error

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -321,6 +322,11 @@ func GetRoomByNama(ctx context.Context, db *pgxpool.Pool, nama string) (*RoomDet
 // provisioning (status scheduled/active) untuk kombinasi ruangan+modul
 // tertentu — dipakai admin untuk "menempel" provisioning ke sesi yang sudah
 // dibuat lewat menu Kelola Sesi, bukan bikin sesi baru asal-asalan.
+//
+// Diurutkan berdasarkan KEDEKATAN TANGGAL ke hari ini (bukan sekadar
+// terbaru) — supaya sesi yang paling relevan (biasanya "hari ini" atau
+// paling dekat) selalu muncul di posisi paling atas, dan admin biasanya
+// tinggal tekan Enter tanpa perlu scroll cari-cari di antara puluhan sesi.
 func ListSessionsForProvision(ctx context.Context, db *pgxpool.Pool, roomNama, moduleCode string) ([]SessionDetail, error) {
 	const query = `
 		SELECT s.id, s.course_code, r.nama, m.code, s.meeting_number, s.session_date::text, s.status
@@ -328,7 +334,7 @@ func ListSessionsForProvision(ctx context.Context, db *pgxpool.Pool, roomNama, m
 		JOIN rooms r   ON r.id = s.room_id
 		JOIN modules m ON m.id = s.module_id
 		WHERE r.nama = $1 AND m.code = $2 AND s.status IN ('scheduled', 'active')
-		ORDER BY (s.status = 'active') DESC, s.session_date DESC
+		ORDER BY ABS(s.session_date - CURRENT_DATE) ASC, (s.status = 'active') DESC
 	`
 	rows, err := db.Query(ctx, query, roomNama, moduleCode)
 	if err != nil {
@@ -386,7 +392,82 @@ func UnlinkPraktikan(ctx context.Context, db *pgxpool.Pool, containerName string
 	return err
 }
 
+// GetRoomCurrentModule mendeteksi modul yang SEDANG dipakai container-container
+// di suatu ruangan (dilihat dari sesi yang terkait ke environment yang ada).
+// Dipakai fitur "Ganti Sesi Ruangan" supaya admin tidak perlu pilih modul
+// manual lagi — sistem sudah tahu dari container yang sudah ada.
+func GetRoomCurrentModule(ctx context.Context, db *pgxpool.Pool, roomNama string) (string, error) {
+	const query = `
+		SELECT m.code
+		FROM environments e
+		JOIN sessions s ON s.id = e.session_id
+		JOIN rooms r    ON r.id = s.room_id
+		JOIN modules m  ON m.id = s.module_id
+		WHERE r.nama = $1
+		LIMIT 1
+	`
+	var code string
+	err := db.QueryRow(ctx, query, roomNama).Scan(&code)
+	if err != nil {
+		return "", fmt.Errorf("belum ada container di ruangan %q — provisioning dulu lewat 'Provisioning Ruangan > Start': %w", roomNama, err)
+	}
+	return code, nil
+}
+
+// RepointSession memindahkan satu environment supaya nempel ke sesi (baris
+// `sessions`) yang BERBEDA — dipakai saat "pindah kelas/pertemuan" tanpa
+// perlu hapus-bikin ulang container. HANYA aman dipakai kalau modul sesi
+// lama dan sesi baru SAMA (master container & profile LXD identik) —
+// kalau modulnya beda, harus lewat stop+start biasa (container-nya memang
+// perlu diganti total).
+func RepointSession(ctx context.Context, db *pgxpool.Pool, containerName, newSessionID string) error {
+	_, err := db.Exec(ctx, "UPDATE environments SET session_id = $1 WHERE container_name = $2", newSessionID, containerName)
+	return err
+}
+
 func DeleteEnvironmentByContainerName(ctx context.Context, db *pgxpool.Pool, containerName string) error {
 	_, err := db.Exec(ctx, "DELETE FROM environments WHERE container_name = $1", containerName)
 	return err
+}
+
+// CreateSessionsBulk membuat BANYAK sesi sekaligus untuk 1 course_code,
+// dimulai dari nomor pertemuan tertentu (TIDAK selalu dari pertemuan 1 —
+// misal modul netbegin cuma pakai container di pertemuan ke-8, modul
+// netadmin dari pertemuan ke-2 sampai ke-7). Tanggal tiap pertemuan
+// dihitung otomatis: startDate + (i * intervalDays), i=0,1,2,...
+func CreateSessionsBulk(ctx context.Context, db *pgxpool.Pool, courseCode, roomNama, moduleCode string, startMeetingNumber, meetingCount, intervalDays int, startDate string) error {
+	roomID, err := getRoomIDByNama(ctx, db, roomNama)
+	if err != nil {
+		return err
+	}
+	moduleID, err := getModuleIDByCode(ctx, db, moduleCode)
+	if err != nil {
+		return err
+	}
+
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Errorf("format tanggal salah, gunakan YYYY-MM-DD: %w", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	for i := 0; i < meetingCount; i++ {
+		meetingNumber := startMeetingNumber + i
+		meetingDate := start.AddDate(0, 0, i*intervalDays)
+
+		_, err := tx.Exec(ctx, `
+			INSERT INTO sessions (course_code, module_id, room_id, meeting_number, session_date, status)
+			VALUES ($1, $2, $3, $4, $5, 'scheduled')
+		`, courseCode, moduleID, roomID, meetingNumber, meetingDate.Format("2006-01-02"))
+		if err != nil {
+			return fmt.Errorf("gagal insert pertemuan ke-%d: %w", meetingNumber, err)
+		}
+	}
+
+	return tx.Commit(ctx)
 }
