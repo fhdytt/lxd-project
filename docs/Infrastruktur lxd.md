@@ -1,6 +1,6 @@
-# 2. Infrastruktur LXD
+# Infrastruktur LXD
 
-## 2.1 Kondisi Awal
+## Kondisi Awal
 
 Sebelum project ini sudah ada instalasi LXD yang pernah dipakai untuk uji coba sebelumnya:
 
@@ -12,7 +12,7 @@ lxc list            # ada 1 container master-netbegin (stopped, masih bersih)
 lxc image list      # ubuntu 24.04 sudah ter-cache lokal
 ```
 
-## 2.2 Storage & Network
+## Storage & Network
 
 | Komponen | Nilai | Catatan |
 |---|---|---|
@@ -20,7 +20,7 @@ lxc image list      # ubuntu 24.04 sudah ter-cache lokal
 | Network bridge | `lxdbr0` | Subnet `10.184.56.1/24` |
 | LXD version | 5.21.6 LTS | |
 
-## 2.3 Profile LXD
+## Profile LXD
 
 Dua profile dibuat untuk membedakan alokasi resource per jenis modul. Karena VM testing awal hanya 2 core/4GB, dipakai `limits.cpu.allowance` (persentase waktu CPU / CPU sharing), **bukan** `limits.cpu` (reserved core penuh), supaya container bisa berbagi core tanpa oversubscribe.
 
@@ -42,7 +42,7 @@ lxc profile set kursus-netadmin limits.memory 512MB
 
 > **Catatan skalabilitas:** angka di atas hanya untuk skala uji coba (2 core/4GB, 3 container/ruang). Saat digunakan ke server dengan spek lebih besar, jalankan `lxc profile set` ulang dengan nilai baru yang diperlukan tidak perlu rebuild profile dari nol
 
-## 2.4 Master Container
+## Master Container
 
 Master container merupakan template per modul. Selalu **stopped** kecuali sedang dikonfigurasi, container ini tidak digunakan langsung oleh praktikan, hanya jadi sumber clone.
 
@@ -85,7 +85,7 @@ exit
 lxc stop master-<nama-modul>
 ```
 
-## 2.5 Skema Penamaan & Port SSH
+## Skema Penamaan & Port SSH
 
 | Ruangan | Prefix Port |
 |---|---|
@@ -102,7 +102,7 @@ Port dipetakan lewat **proxy device** LXD:
 lxc config device add <nama-container> proxy22 proxy listen=tcp:0.0.0.0:<port> connect=tcp:127.0.0.1:22
 ```
 
-## 2.6 Provisioning: Clone Langsung dari Master
+## Provisioning: Clone Langsung dari Master
 
 Dipilih clone langsung dari master container (bukan publish ke image dulu), karena:
 - `pool-lab` berbasis ZFS → `lxc copy` dari container stopped berjalan sebagai **ZFS clone**, cepat & hemat disk.
@@ -120,7 +120,7 @@ Snapshot `clean` dibuat **segera setelah container running**, sebagai baseline u
 
 > **PENTING — urutan `lxc config set environment.*` vs `lxc start`:** kalau container butuh env var yang di-inject lewat `lxc config set <container> environment.KEY=value` (dipakai untuk token API, lihat [API Backend](05-api-backend.md) & [Alur End-to-End](06-alur-end-to-end.md)), config itu **HARUS di-set sebelum `lxc start`**. LXD hanya menerapkan `environment.*` ke proses init (PID 1) pada saat container start — kalau di-set setelah container sudah nyala, PID 1 yang sudah jalan duluan tidak pernah membaca ulang config itu. Detail masalah ini ada di [Troubleshooting](08-troubleshooting.md#33-env-var-token-tidak-terbaca-di-sesi-ssh).
 
-## 2.7 Reset & Recovery
+## Reset & Recovery
 
 Dua level reset, keduanya berbasis **ZFS snapshot restore**:
 
@@ -136,7 +136,7 @@ Snapshot `clean` dibuat otomatis sesaat setelah container pertama kali provision
 
 **Kenapa snapshot restore, bukan delete+reclone?** Snapshot restore lebih cepat dan **proxy device tetap nempel** (tidak perlu setup ulang port SSH), karena container-nya tidak dihapus, hanya di-restore state-nya.
 
-## 2.8 Script `kelola-lxd.sh`
+## Script `kelola-lxd.sh`
 
 Script bash untuk mengelola siklus hidup container per ruangan. Lihat isi lengkap script dan penjelasan tiap bagian di [Panduan Operasional](07-panduan-operasional.md#kelola-lxdsh).
 

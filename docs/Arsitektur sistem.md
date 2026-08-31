@@ -1,6 +1,6 @@
-# 1. Arsitektur Sistem
+# Arsitektur Sistem
 
-## 1.1 Latar Belakang
+## Latar Belakang
 
 Sebuah laboratorium harus menyediakan environment Linux untuk kebutuhan praktikum dengan banyak mahasiswa secara bersamaan. Dengan environment yang dikelola secara manual, muncul beberapa masalah:
 
@@ -14,7 +14,7 @@ Sistem ini dapat menyelesaikan permasalahannya dengan container LXD terisolasi p
 
 **Deployment:** sepenuhnya on-premise, di **1 server fisik** 
 
-## 1.2 Diagram Arsitektur
+## Diagram Arsitektur
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
