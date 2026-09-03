@@ -1,6 +1,6 @@
 # Skema Database
 
-Database PostgreSQL menyimpan seluruh state akademik & operasional sistem: modul, ruangan, praktikan, sesi, dan environment.
+Database PostgreSQL menyimpan seluruh state akademik & operasional sistem yaitu modul, ruangan, praktikan, sesi, dan environment.
 
 ## Diagram Relasi
 
