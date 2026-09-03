@@ -27,12 +27,12 @@ const (
 	screenConfirmReset
 	screenError
 
-	//  Ganti Sesi Ruangan
+	// Sesi Ruangan
 	screenPickRoomForNextMeeting
 	screenPickSessionForNextMeeting
 	screenConfirmNextMeeting
 
-	//  Kelola Ruangan (CRUD) 
+	// Kelola Ruangan
 	screenRoomsMenu
 	screenRoomsList
 	screenRoomFormNama
@@ -42,7 +42,7 @@ const (
 	screenRoomPickForDelete
 	screenRoomDeleteConfirm
 
-	//  Kelola Sesi (CRUD) 
+	// Kelola Sesi
 	screenSessionsMenu
 	screenSessionsList
 	screenSessionPickRoom
@@ -55,7 +55,7 @@ const (
 	screenSessionPickForDelete
 	screenSessionDeleteConfirm
 
-	//  Tambah Banyak Sesi
+	//  Tambah Sesi
 	screenBulkPickRoom
 	screenBulkPickModule
 	screenBulkFormCourseCode
@@ -66,9 +66,7 @@ const (
 	screenBulkConfirm
 )
 
-// Daftar menu tetap, dipakai ulang di beberapa tempat supaya tidak perlu
-// menuliskan literalnya berkali-kali (dan menghindari salah ketik/tidak
-// sinkron antar tempat).
+// Daftar menu
 var mainMenuItems = []string{
 	"Lihat Daftar Environment",
 	"Persiapan Ruangan",
@@ -98,7 +96,6 @@ var sessionsMenuItems = []string{
 
 var sessionStatusOptions = []string{"scheduled", "active", "completed", "cancelled"}
 
-// model adalah state Bubble Tea tunggal untuk seluruh aplikasi lxd-control.
 type model struct {
 	cfg *Config
 	db  *pgxpool.Pool
@@ -107,15 +104,8 @@ type model struct {
 	errMsg string
 	spin   spinner.Model
 
-	// returnTo menentukan layar mana yang dituju saat pengguna menekan
-	// Enter/Esc di layar hasil/daftar (screenCommandResult, screenRoomsList,
-	// dst). Method expression (model.backToMainMenu, model.gotoRoomsMenu,
-	// dst) dipakai supaya satu field ini bisa mewakili "kembali ke mana
-	// saja" tanpa perlu banyak flag boolean terpisah. WAJIB di-set ulang di
-	// setiap titik masuk alur baru — jangan mengandalkan nilai lama.
 	returnTo func(model) (tea.Model, tea.Cmd)
 
-	// Menu generik: dipakai ulang di semua layar berbasis daftar pilihan.
 	menuItems  []string
 	menuCursor int
 
@@ -125,38 +115,37 @@ type model struct {
 
 	selectedRoom      string
 	selectedModule    string
-	selectedAction    string // "start" atau "stop"
-	selectedResetMode string // "room" atau "container"
+	selectedAction    string
+	selectedResetMode string
 	selectedContainer string
 
-	// provisionSessionIDs paralel dengan menuItems saat screenPickSessionForProvision
 	provisionSessionIDs []string
 	selectedSessionID   string
 
 	commandOutput string
 	commandFailed bool
 
-	//  Kelola Ruangan 
+	//  Kelola Ruangan
 	roomsDetailed           []RoomDetail
-	roomFormMode            string // "create" atau "update"
+	roomFormMode            string
 	roomInputNama           textinput.Model
 	roomInputPortPrefix     textinput.Model
 	roomInputCapacity       textinput.Model
 	editingRoomOriginalNama string
 
-	//  Kelola Sesi 
+	//  Kelola Sesi
 	sessionsDetailed          []SessionDetail
-	sessionPickIDs            []string // paralel dengan menuItems saat pick-for-edit/delete
-	sessionFormMode           string   // "create" atau "update"
+	sessionPickIDs            []string
+	sessionFormMode           string
 	sessionInputCourseCode    textinput.Model
 	sessionInputMeetingNumber textinput.Model
 	sessionInputDate          textinput.Model
-	sessionRoom               string // dipilih sebelum form, hanya saat create
-	sessionModule             string // dipilih sebelum form, hanya saat create
+	sessionRoom               string
+	sessionModule             string
 	sessionStatus             string
 	editingSessionID          string
 
-	//  Tambah Banyak Sesi Sekaligus 
+	//  Tambah Banyak Sesi
 	bulkRoom              string
 	bulkModule            string
 	bulkInputCourseCode   textinput.Model
@@ -203,20 +192,7 @@ func initialModel(cfg *Config, db *pgxpool.Pool) model {
 	}
 }
 
-// ==================== STYLES ====================
-//
-// Palet warna "retro-arcade" — pink/oranye/kuning, sengaja beda total dari
-// palet Dracula yang dipakai di lxd-tui, dan tidak memakai cyan sama sekali:
-//   dark      #1A1A2E  indigo gelap — teks di dalam pill accent (kontras
-//                       gelap di atas oranye terang)
-//   border    #E94560  pink/merah cerah — border box, bingkai mencolok ala
-//                       mesin arcade
-//   secondary #FFD23F  kuning emas — label / hint / item menu nonaktif
-//   accent    #F39C12  oranye — title, background pill cursor
-//   base      #F5F5F5  putih hangat — teks utama/value
-//   success   #2ECC71  hijau — indikator status positif
-//   danger    #FF3B30  merah terang — error (sengaja beda hue dari border
-//                       pink, biar makna "error" tidak ketuker dengan bingkai)
+// Styling
 var (
 	dark      = lipgloss.Color("#1A1A2E")
 	border    = lipgloss.Color("#E94560")
@@ -231,37 +207,28 @@ var (
 	hintStyle  = lipgloss.NewStyle().Foreground(secondary).Italic(true)
 	errStyle   = lipgloss.NewStyle().Foreground(danger).Bold(true)
 	okStyle    = lipgloss.NewStyle().Foreground(success).Bold(true)
-
-	// cursorStyle: pill solid (teks gelap di atas background oranye) supaya
-	// item yang sedang dipilih terasa mencolok & interaktif.
 	cursorStyle = lipgloss.NewStyle().Foreground(dark).Background(accent).Bold(true).Padding(0, 1)
 	dimStyle    = lipgloss.NewStyle().Foreground(secondary)
 	labelStyle  = lipgloss.NewStyle().Foreground(base)
-
 	logoColor    = lipgloss.Color("#F8F8F2")
 	logoStyle    = lipgloss.NewStyle().Foreground(logoColor).Italic(true)
 	logoSubStyle = lipgloss.NewStyle().Foreground(secondary).Bold(true)
 )
 
-// lepkomLogo adalah ASCII art nama LEPKOM. Disimpan sebagai raw string agar
-// spasi/indentasinya persis seperti yang dirancang.
-const lepkomLogo = `     __       ______  ____    _  __  ____    __  ___ 
-    /  /     / ____/ / __ \  / //_/ / __ \  /  |/  / 
-   /  /     / /___  / /_/ / / ,<   / / / / / /|_/ /  
-  /  /___  / /___  / ____/ / /| | / /_/ / / /  / /   
+const Logo = `     __       ______  ____    _  __  ____    __  ___
+    /  /     / ____/ / __ \  / //_/ / __ \  /  |/  /
+   /  /     / /___  / /_/ / / ,<   / / / / / /|_/ /
+  /  /___  / /___  / ____/ / /| | / /_/ / / /  / /
  /______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    `
 
-// renderLogo merender logo ASCII LEPKOM (italic, warna hijau tua) dengan
-// subjudul "G U N A D A R M A" yang otomatis dipusatkan sesuai lebar logo.
 func renderLogo() string {
-	width := lipgloss.Width(lepkomLogo)
-	logo := logoStyle.Render(lepkomLogo)
+	width := lipgloss.Width(Logo)
+	logo := logoStyle.Render(Logo)
 	sub := logoSubStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, "G U N A D A R M A"))
 	return logo + "\n" + sub
 }
 
-// ==================== MESSAGES ====================
-
+// MSG
 type roomsLoadedMsg struct {
 	rooms []Room
 	err   error

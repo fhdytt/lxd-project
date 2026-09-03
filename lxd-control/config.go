@@ -7,16 +7,10 @@ import (
 	"strings"
 )
 
-// Config menampung konfigurasi lxd-control. Dibaca dari file .env di folder
-// yang sama, atau dari environment variable biasa kalau sudah di-export.
-//
-// CATATAN: PGPASSWORD TIDAK DIBUTUHKAN LAGI di sini — kelola-lxd.sh sekarang
-// murni eksekutor LXD, sudah tidak menyentuh PostgreSQL sama sekali. Semua
-// akses database dilakukan lxd-control sendiri lewat DATABASE_URL.
 type Config struct {
 	DatabaseURL string
-	ScriptPath  string // path ke kelola-lxd.sh
-	APIURL      string // alamat praktikum-api, dari sudut pandang container (lewat lxdbr0)
+	ScriptPath  string
+	APIURL      string
 }
 
 func LoadConfig() (*Config, error) {
@@ -29,10 +23,10 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL wajib di-set (cek file .env)")
+		return nil, fmt.Errorf("DATABASE_URL wajib di-set")
 	}
 	if _, err := os.Stat(cfg.ScriptPath); err != nil {
-		return nil, fmt.Errorf("kelola-lxd.sh tidak ditemukan di %q: %w", cfg.ScriptPath, err)
+		return nil, fmt.Errorf("file script tidak ditemukan di %q: %w", cfg.ScriptPath, err)
 	}
 
 	return cfg, nil
