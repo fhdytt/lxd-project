@@ -11,17 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Init (bagian dari interface tea.Model) — men-trigger command async pertama
-// kali dijalankan: cuma spinner tick, karena layar awal (Menu Utama) tidak
-// butuh data apapun dari database.
+// Init bagian dari interface tea.Model untuk men-trigger command async pertama
 func (m model) Init() tea.Cmd {
 	return m.spin.Tick
 }
 
-// errSomeFailed adalah sentinel error dipakai commandDoneMsg untuk menandai
-// "sebagian item gagal" pada operasi yang memproses banyak container
-// sekaligus — detail lengkapnya selalu ada di teks output, bukan di pesan
-// error ini sendiri.
+// errSomeFailed adalah pesan error sebagai pertanda untuk command async yang dijalankan di background, ada sebagian yang gagal
 var errSomeFailed = errors.New("sebagian gagal, lihat detail di atas")
 
 func errFromBool(failed bool) error {
@@ -31,8 +26,7 @@ func errFromBool(failed bool) error {
 	return nil
 }
 
-// ==================== COMMANDS: loader data (read-only) ====================
-
+// Load Data
 func loadRoomsCmd(db *pgxpool.Pool) tea.Cmd {
 	return func() tea.Msg {
 		rooms, err := ListRooms(context.Background(), db)
@@ -75,10 +69,7 @@ func loadSessionsCmd(db *pgxpool.Pool) tea.Cmd {
 	}
 }
 
-// loadSessionsForProvisionCmd HANYA mengambil sesi berstatus scheduled/active
-// untuk kombinasi ruangan+modul tertentu — dipakai supaya admin "menempel"
-// provisioning ke sesi yang sudah dibuat lewat Kelola Sesi, bukan menciptakan
-// sesi baru asal-asalan tiap kali provisioning (perilaku lama yang sudah dibuang).
+// loadSessionsForProvisionCmd mengambil sesi berstatus scheduled/active untuk kombinasi tertentu
 func loadSessionsForProvisionCmd(db *pgxpool.Pool, room, module string) tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := ListSessionsForProvision(context.Background(), db, room, module)
@@ -86,8 +77,7 @@ func loadSessionsForProvisionCmd(db *pgxpool.Pool, room, module string) tea.Cmd 
 	}
 }
 
-// ==================== COMMANDS: CRUD ruangan & sesi ====================
-
+// Create/Update/Delete Ruangan
 func createRoomCmd(db *pgxpool.Pool, nama, portPrefix string, capacity int) tea.Cmd {
 	return func() tea.Msg {
 		err := CreateRoom(context.Background(), db, nama, portPrefix, capacity)
@@ -109,6 +99,7 @@ func deleteRoomCmd(db *pgxpool.Pool, nama string) tea.Cmd {
 	}
 }
 
+// Create/Update/Delete Sesi
 func createSessionCmd(db *pgxpool.Pool, courseCode, room, module string, meetingNumber int, date, status string) tea.Cmd {
 	return func() tea.Msg {
 		err := CreateSession(context.Background(), db, courseCode, room, module, meetingNumber, date, status)
@@ -130,16 +121,7 @@ func deleteSessionCmd(db *pgxpool.Pool, id string) tea.Cmd {
 	}
 }
 
-// ==================== COMMANDS: orkestrasi provisioning (BARU) ====================
-// Ini menggantikan pemanggilan "kelola-lxd.sh start/stop/reset-room" yang
-// lama. Sekarang lxd-control sendiri yang memutuskan nama container, port,
-// generate token, DAN menulis ke database — kelola-lxd.sh cuma dipanggil
-// per-container untuk operasi LXD teknis murni.
-
-// provisionRoomCmd melakukan provisioning satu ruangan penuh: loop tiap slot
-// (1..capacity ruangan), generate token, jalankan kelola-lxd.sh, lalu catat
-// ke database. Container yang namanya SUDAH ada di database dilewati
-// (idempotent) — sama seperti perilaku kelola-lxd.sh versi lama.
+// provisionRoomCmd melakukan persiapan kursus satu ruangan
 func provisionRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, moduleCode, sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -188,13 +170,13 @@ func provisionRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, moduleCode, sessi
 			}
 
 			if provErr := ProvisionContainer(cfg, mod.MasterContainer, mod.LxdProfile, containerName, port, cfg.APIURL, token); provErr != nil {
-				output.WriteString(fmt.Sprintf("%s: GAGAL provisioning LXD — %v\n", containerName, provErr))
+				output.WriteString(fmt.Sprintf("%s: GAGAL menyediakan LXD %v\n", containerName, provErr))
 				failed = true
 				continue
 			}
 
 			if dbErr := InsertEnvironment(ctx, db, sessionID, containerName, slot, port, hash); dbErr != nil {
-				output.WriteString(fmt.Sprintf("%s: container LXD JADI tapi GAGAL disimpan ke database — %v\n", containerName, dbErr))
+				output.WriteString(fmt.Sprintf("%s: container LXD berhasil dibuat tapi gagal disimpan ke database %v\n", containerName, dbErr))
 				failed = true
 				continue
 			}
@@ -207,7 +189,7 @@ func provisionRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, moduleCode, sessi
 	}
 }
 
-// stopRoomCmd menghapus SEMUA container di satu ruangan (LXD + database).
+// stopRoomCmd menghapus SEMUA container
 func stopRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -220,17 +202,17 @@ func stopRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 		failed := false
 
 		if len(names) == 0 {
-			output.WriteString("Tidak ada container di ruangan ini.\n")
+			output.WriteString("Tidak ada container di ruangan ini\n")
 		}
 
 		for _, name := range names {
 			if err := DeprovisionContainer(cfg, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: GAGAL dihapus dari LXD — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: GAGAL dihapus dari LXD %v\n", name, err))
 				failed = true
 				continue
 			}
 			if err := DeleteEnvironmentByContainerName(ctx, db, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: dihapus dari LXD TAPI gagal dihapus dari database — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: dihapus dari LXD TAPI gagal dihapus dari database %v\n", name, err))
 				failed = true
 				continue
 			}
@@ -241,11 +223,7 @@ func stopRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 	}
 }
 
-// resetContainerCmd me-reset SATU container ke snapshot 'clean', DAN
-// melepas kaitan identitas praktikan yang sebelumnya login di sini (lihat
-// UnlinkPraktikan di db.go) — supaya praktikan berikutnya bisa
-// mengidentifikasi diri dari nol, bukan ketolak terus-menerus karena
-// identitas lama masih "nempel".
+// resetContainerCmd me-reset SATU container ke snapshot
 func resetContainerCmd(cfg *Config, db *pgxpool.Pool, containerName string) tea.Cmd {
 	return func() tea.Msg {
 		if err := ResetContainer(cfg, containerName); err != nil {
@@ -254,18 +232,16 @@ func resetContainerCmd(cfg *Config, db *pgxpool.Pool, containerName string) tea.
 
 		if err := UnlinkPraktikan(context.Background(), db, containerName); err != nil {
 			return commandDoneMsg{
-				output: fmt.Sprintf("%s: container berhasil direset TAPI gagal melepas identitas praktikan lama — %v", containerName, err),
+				output: fmt.Sprintf("%s: container berhasil direset TAPI gagal melepas identitas %v", containerName, err),
 				err:    err,
 			}
 		}
 
-		return commandDoneMsg{output: containerName + ": berhasil direset (identitas praktikan lama juga sudah dilepas).", err: nil}
+		return commandDoneMsg{output: containerName + ": berhasil direset", err: nil}
 	}
 }
 
-// resetRoomCmd me-reset SEMUA container di satu ruangan, DAN melepas
-// kaitan identitas praktikan di masing-masing container (lihat catatan di
-// resetContainerCmd di atas).
+// resetRoomCmd mereset SEMUA container di satu ruangan
 func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -283,12 +259,12 @@ func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 
 		for _, name := range names {
 			if err := ResetContainer(cfg, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: GAGAL — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: GAGAL %v\n", name, err))
 				failed = true
 				continue
 			}
 			if err := UnlinkPraktikan(ctx, db, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: direset TAPI gagal melepas identitas lama — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: direset TAPI gagal melepas identitas %v\n", name, err))
 				failed = true
 				continue
 			}
@@ -298,12 +274,6 @@ func resetRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama string) tea.Cmd {
 		return commandDoneMsg{output: output.String(), err: errFromBool(failed)}
 	}
 }
-
-// ==================== COMMANDS: ganti sesi ruangan (pertemuan berikutnya) ====================
-// Dipakai saat ruangan yang SAMA dipakai kelas/pertemuan yang berbeda tanpa
-// perlu hapus-bikin ulang container — cukup dibersihkan (reset) dan
-// "dipindah" nempelnya ke sesi baru. Modul (netbegin/netadmin) container yang
-// sudah ada TIDAK berubah — kalau perlu ganti modul, harus lewat stop+start biasa.
 
 func loadRoomModuleCmd(db *pgxpool.Pool, roomNama string) tea.Cmd {
 	return func() tea.Msg {
@@ -324,22 +294,22 @@ func nextMeetingRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, newSessionID st
 		failed := false
 
 		if len(names) == 0 {
-			output.WriteString("Tidak ada container di ruangan ini.\n")
+			output.WriteString("Tidak ada container di ruangan ini\n")
 		}
 
 		for _, name := range names {
 			if err := ResetContainer(cfg, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: GAGAL reset — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: GAGAL reset %v\n", name, err))
 				failed = true
 				continue
 			}
 			if err := UnlinkPraktikan(ctx, db, name); err != nil {
-				output.WriteString(fmt.Sprintf("%s: reset ok, tapi gagal lepas identitas lama — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: reset ok, tapi gagal lepas identitas %v\n", name, err))
 				failed = true
 				continue
 			}
 			if err := RepointSession(ctx, db, name, newSessionID); err != nil {
-				output.WriteString(fmt.Sprintf("%s: reset+lepas identitas ok, tapi gagal pindah sesi — %v\n", name, err))
+				output.WriteString(fmt.Sprintf("%s: reset berhasil lepas identitas, tapi gagal pindah sesi %v\n", name, err))
 				failed = true
 				continue
 			}
@@ -350,9 +320,7 @@ func nextMeetingRoomCmd(cfg *Config, db *pgxpool.Pool, roomNama, newSessionID st
 	}
 }
 
-// createSessionsBulkCmd membuat banyak sesi sekaligus (lihat CreateSessionsBulk
-// di db.go) — dipakai fitur "Tambah Banyak Sesi" supaya admin tidak perlu
-// input satu-satu untuk course dengan banyak pertemuan yang pakai container.
+// createSessionsBulkCmd membuat banyak sesi sekaligus
 func createSessionsBulkCmd(db *pgxpool.Pool, courseCode, room, module string, startMeetingNumber, meetingCount, intervalDays int, startDate string) tea.Cmd {
 	return func() tea.Msg {
 		err := CreateSessionsBulk(context.Background(), db, courseCode, room, module, startMeetingNumber, meetingCount, intervalDays, startDate)
