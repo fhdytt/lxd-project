@@ -1,250 +1,169 @@
 # 4. TUI Praktikan
 
-TUI (`praktikum-tui`) adalah dashboard terminal yang otomatis muncul saat praktikan SSH login ke environment-nya — menggantikan shell biasa untuk sesaat, menampilkan info sesi, meminta identifikasi (nama + NPM) sekali di awal, lalu melanjutkan ke shell normal.
+TUI (`praktikum-tui`) adalah dashboard terminal yang otomatis muncul saat praktikan SSH login — **tanpa perlu credential SSH apapun** — menampilkan info sesi, meminta identifikasi (nama + NPM), lalu meminta login sebagai akun Linux tertentu (dengan password akun itu), baru masuk ke shell sungguhan.
 
-## 4.1 Alur
+## 4.1 Alur Lengkap
 
 ```
-Praktikan SSH login
+Praktikan SSH login (TANPA diminta password/key apapun)
         │
-        ▼  (ForceCommand memaksa TUI jalan, bukan shell biasa)
+        ▼  (PAM permit + ForceCommand memaksa TUI jalan)
 ┌───────────────────┐
 │   Loading           │  ← fetch data dari API pakai token, spinner tampil
 └─────────┬───────────┘
           ▼
 ┌───────────────────┐
 │   Dashboard TUI      │
-│  - Kode Kursus       │
-│  - Modul             │
-│  - Ruangan           │
-│  - Pertemuan ke-     │
-│  - Tanggal           │
-│  - Status Env        │
-│  - Status Identifikasi│
 └─────────┬───────────┘
-          │ tekan Enter
-          ▼   (SELALU masuk sini, tidak ada jalan pintas walau
-          │    already_identified sudah true — lihat 4.3a)
-┌───────────────────┐
-│  Input Nama          │
-└─────────┬───────────┘
+          │ Enter (SELALU, tidak ada jalan pintas)
           ▼
-┌───────────────────┐
-│  Input NPM           │
-└─────────┬───────────┘
-          │ submit → POST ke API (spinner tampil)
-          ▼
-     berhasil?
-          │
-    ┌─────┴─────┐
-    ▼            ▼
-  ya           tidak (NPM tidak cocok / error lain)
-    │            │
-    ▼            ▼
-┌────────────┐ ┌──────────────────┐
-│ exec ke      │ │  screenError       │
-│ $SHELL       │ │  [Enter] coba lagi  │
-│ (proses TUI  │ │  [Ctrl+C] keluar   │
-│  digantikan  │ └──────────────────┘
-│  shell)      │
-└────────────┘
+┌───────────────────┐      ┌───────────────────┐
+│  Input Nama          │ ──▶ │  Input NPM           │
+└───────────────────┘      └─────────┬───────────┘
+                                       │ submit → POST /identify
+                                       ▼
+                                  berhasil?
+                             ┌─────────┴─────────┐
+                             ▼                    ▼
+                     403 (nama/NPM         200 sukses
+                     tidak cocok)                │
+                             │                    ▼
+                             ▼          ┌───────────────────┐
+                       screenError      │  Pilih User Linux    │
+                       (TIDAK exec)     │  (baca /etc/passwd    │
+                                        │   langsung, TANPA API)│
+                                        └─────────┬───────────┘
+                                                   ▼
+                                        ┌───────────────────┐
+                                        │  Input Password       │
+                                        │  akun Linux itu       │
+                                        └─────────┬───────────┘
+                                                   │ verifikasi via /etc/shadow
+                                                   ▼
+                                             cocok?
+                                        ┌─────────┴─────────┐
+                                        ▼                    ▼
+                                  salah, ulangi        exec ke shell
+                                  (TIDAK exec)          (login -f <user>)
 
-Ctrl+C DI LAYAR MANAPUN → sesi langsung ditutup,
-TIDAK PERNAH lanjut ke shell.
+Ctrl+C DI LAYAR MANAPUN → sesi langsung ditutup, TIDAK PERNAH lanjut ke shell.
 ```
-
-**Perilaku penting (diperbarui):**
-- **Tidak ada lagi jalan pintas otomatis** — walau `already_identified: true` (environment sudah pernah diisi sebelumnya), praktikan **tetap wajib** mengisi nama+NPM. Backend memverifikasi kecocokannya, bukan sekadar mengizinkan lewat. Lihat § 4.3a.
-- Kalau API tidak bisa dihubungi (env var belum ter-set, network bermasalah, dsb), TUI **tidak** melanjutkan ke shell.
-- **Ctrl+C di layar manapun** (termasuk Dashboard) selalu menutup sesi dan **tidak pernah** lanjut ke shell — lihat § 4.5a untuk detail bug yang pernah terjadi dan fix-nya.
 
 ## 4.2 Struktur File
 
 ```
 praktikum-tui/
-├── go.mod          # dependency: bubbletea, bubbles, lipgloss
-├── main.go         # state machine Bubble Tea, routing keyboard, exec ke shell
-├── api.go          # APIClient — HTTP client ke Go backend
-└── README.md       # panduan build & pasang
+├── go.mod              — dependency: bubbletea, bubbles, lipgloss, GehirnInc/crypt (tidak dipakai lagi, lihat § 4.5), amoghe/go-crypt (cgo)
+├── main.go              — entrypoint tipis: baca env var, jalankan TUI, exec ke login
+├── model.go             — state enum, struct model, styles, tipe pesan
+├── commands.go          — Init() + operasi async (fetch API, cek password)
+├── update.go            — Update() + handleKey(), transisi antar layar
+├── view.go               — semua fungsi render tampilan
+├── api.go                — HTTP client ke praktikum-api
+└── local_auth.go         — baca /etc/passwd & verifikasi /etc/shadow (LANGSUNG, tanpa API)
 ```
 
-### `main.go`
+## 4.3 Tampilan: Responsive & Ringan
 
-Berisi model **Bubble Tea** dengan state machine:
+- **Spinner loading** (`bubbles/spinner`, tanpa dependency baru) saat fetch data dan submit.
+- **Box responsive** — lebar menyesuaikan `tea.WindowSizeMsg`, diposisikan center layar.
+- Skema warna konsisten via `lipgloss`.
 
-| State | Fungsi |
+Karena TUI murni rendering teks (bukan grafis), penambahan ini nyaris tidak menambah beban CPU/memory.
+
+## 4.4 Verifikasi Identitas Wajib (Anti Pinjam-PC)
+
+TUI **selalu** meminta nama+NPM di setiap login, apapun status `already_identified`-nya. Backend memverifikasi **nama DAN NPM sekaligus** — kalau environment sudah pernah diisi, keduanya harus cocok dengan yang tercatat, kalau salah satu saja beda → ditolak `403`. Ini penting terutama karena SSH-nya sendiri sudah tanpa gerbang otentikasi (lihat § 4.6) — satu-satunya lapisan keamanan ada di sini. Logic lengkap ada di [API Backend § 5.4a-5.4b](05-api-backend.md).
+
+## 4.5 Pilih User Linux + Verifikasi Password (`local_auth.go`)
+
+**Latar belakang:** modul `netbegin` mengharuskan praktikan praktik membuat user/group Linux — jadi setelah identifikasi, praktikan perlu bisa login sebagai `root` **atau** user yang sudah mereka buat sendiri, dengan password akun Linux sungguhan (bukan cuma identitas akademik).
+
+### Alur
+
+```go
+listLocalUsers()       // baca /etc/passwd, filter UID>=1000 (+ root selalu ada)
+                        // -> tampilkan sebagai menu pilihan (↑/↓ + Enter)
+verifyLocalPassword()  // baca /etc/shadow, cocokkan hash password
+```
+
+### Riwayat perbaikan: panic karena format hash yescrypt
+
+**Gejala:** TUI crash total (`TUI error: program was killed: program experienced a panic`) tepat setelah submit password, memutus seluruh sesi SSH.
+
+**Penyebab:** Ubuntu 22.04+/24.04 default pakai algoritma hash **yescrypt** (`$y$...`) di `/etc/shadow`. Library Go murni pertama yang dipakai (`GehirnInc/crypt`) tidak mendukung yescrypt dan panic saat menemukan format tak dikenal.
+
+**Solusi:** ganti ke `amoghe/go-crypt` — binding **cgo** ke `crypt(3)` bawaan sistem operasi, otomatis mendukung algoritma apapun yang dipakai sistem (termasuk yescrypt), karena memanggil implementasi asli OS, bukan reimplementasi di Go. Tetap ditambah `recover()` sebagai pengaman terakhir supaya error tak terduga apapun tidak pernah membuat seluruh TUI crash.
+
+> **Konsekuensi build:** karena pakai cgo, server yang build `praktikum-tui` **wajib** punya `gcc` (`sudo apt install build-essential` kalau belum ada).
+
+### Kenapa "login -f", bukan "su"?
+
+```go
+syscall.Exec("/bin/login", []string{"login", "-f", username}, env)
+```
+
+`login -f` (force, tanpa password lagi — password sudah diverifikasi manual oleh TUI) mencatat sesi rapi di `utmp`/`wtmp` seperti login normal. TUI selalu jalan sebagai `root` (lihat § 4.6), jadi valid dijalankan untuk user manapun.
+
+## 4.6 SSH Tanpa Credential (PAM Permit)
+
+**Latar belakang:** distribusi SSH key ke ratusan PC lab (40 PC × 4 ruangan) dinilai tidak praktis. Solusinya: matikan otentikasi SSH sepenuhnya di level PAM, siapapun connect ke port itu langsung sampai ke TUI.
+
+```bash
+# /etc/pam.d/sshd
+auth     required pam_permit.so
+account  required pam_permit.so
+session  required pam_permit.so
+```
+
+```
+# /etc/ssh/sshd_config.d/99-open-access.conf
+PermitRootLogin yes
+PasswordAuthentication no
+KbdInteractiveAuthentication yes
+AuthenticationMethods keyboard-interactive
+```
+
+**Trade-off yang disadari dan diterima:** port SSH container jadi benar-benar terbuka tanpa gerbang apapun di level SSH. Keamanan sesungguhnya sepenuhnya bertumpu pada TUI (§ 4.4 dan § 4.5) — harus tahu NPM+nama yang cocok, dan password akun Linux yang benar.
+
+**Konsekuensi UX:** praktikan wajib login pakai `user@` eksplisit (`ssh root@<ip> -p <port>`), karena tanpa itu klien SSH pakai username default OS lokal mereka yang kemungkinan tidak ada di container. Bisa disederhanakan lagi lewat config `~/.ssh/config` di tiap PC lab (`Host <ip>` → `User root`), disiapkan sekali saat imaging PC.
+
+## 4.7 Fix Bug: Ctrl+C Malah Lanjut ke Shell
+
+**Gejala:** menekan `Ctrl+C` di layar Dashboard (bukan layar error) tidak menutup sesi — malah lanjut masuk shell.
+
+**Penyebab:** versi awal `main()` menentukan boleh-tidaknya lanjut ke shell dengan mengecek `state == screenError`, padahal `Ctrl+C` memanggil `tea.Quit` dari state manapun.
+
+**Solusi:** field eksplisit `shouldContinueToShell bool`, default `false`, hanya diset `true` di satu titik: password akun Linux **benar-benar** terverifikasi cocok.
+
+## 4.8 Environment Variable & Fallback `/proc/1/environ`
+
+| Variable | Keterangan |
 |---|---|
-| `screenLoading` | Fetch data environment dari API |
-| `screenDashboard` | Tampilkan info sesi, tunggu Enter |
-| `screenInputNama` | Input nama lengkap |
-| `screenInputNPM` | Input NPM |
-| `screenSubmitting` | Kirim data ke API |
-| `screenError` | Tampilkan pesan error, tawarkan coba lagi |
+| `PRAKTIKUM_API_URL` | Alamat `praktikum-api`, di-inject `lxd-control` saat provisioning |
+| `PRAKTIKUM_API_TOKEN` | Token unik per environment |
 
-### `api.go`
+Env var LXD (`lxc config set environment.*`) hanya menempel ke PID 1 container, **tidak** diwariskan otomatis ke sesi SSH. TUI fallback baca `/proc/1/environ` kalau `os.Getenv()` kosong — detail lengkap di [Troubleshooting § 8.3.2](08-troubleshooting.md).
 
-`APIClient` membungkus 2 pemanggilan HTTP:
-
-```go
-func (c *APIClient) FetchEnvInfo() (*EnvInfo, error)
-func (c *APIClient) SubmitIdentity(nama, npm string) error
-```
-
-Struct `EnvInfo` merepresentasikan response dari `GET /api/v1/environments/me`:
-
-```go
-type EnvInfo struct {
-    ContainerName     string `json:"container_name"`
-    CourseCode        string `json:"course_code"`
-    Module            string `json:"module"`
-    Room              string `json:"room"`
-    MeetingNumber     int    `json:"meeting_number"`
-    SessionDate       string `json:"session_date"`
-    Status            string `json:"status"`
-    AlreadyIdentified bool   `json:"already_identified"`
-}
-```
-
-## 4.2a Tampilan: Responsive & Ringan
-
-Beberapa peningkatan visual ditambahkan, dengan prinsip **tetap ringan** — karena TUI murni rendering teks di terminal (bukan grafis), penambahan ini nyaris tidak menambah beban CPU/memory dibanding versi polos:
-
-- **Spinner loading** (`bubbles/spinner`, sub-package dari dependency yang sudah ada — tidak menambah dependency baru) ditampilkan saat fetch data dan saat submit identitas, memberi indikasi visual bahwa aplikasi sedang bekerja, bukan macet.
-- **Box responsive** — lebar kotak dialog menyesuaikan ukuran terminal pengguna lewat `tea.WindowSizeMsg`, dengan batas wajar (30-60 karakter), dan diposisikan center layar. Ini membuat tampilan tetap rapi baik di terminal kecil (PuTTY default 80x24) maupun besar.
-- Skema warna konsisten (aksen biru/cyan untuk elemen utama, abu-abu untuk label, merah untuk error) lewat `lipgloss`, tanpa dependency tambahan.
-
-Tidak ada animasi berulang di luar spinner (yang sudah minimal — hanya berjalan saat benar-benar loading), dan tidak ada polling/refresh berkala yang membebani API atau CPU saat TUI dalam keadaan idle menunggu input pengguna.
-
-## 4.3a Verifikasi Identitas Wajib (Anti Pinjam-PC)
-
-**Latar belakang masalah:** desain awal, kalau environment sudah pernah diisi identitasnya, TUI langsung melewati layar input dan lanjut ke shell begitu `Enter` ditekan — tanpa mengecek siapa yang login. Ini celah keamanan: teman sekelas yang duduk di PC yang sama (atau tahu password root) bisa langsung masuk ke environment yang bukan miliknya tanpa hambatan apapun.
-
-**Perilaku sekarang:** TUI **selalu** meminta nama+NPM di setiap login, apapun status `already_identified`-nya. Bedanya ada di sisi backend:
-
-- **Environment belum pernah diisi** → nama+NPM yang di-submit didaftarkan sebagai pemilik baru (perilaku sama seperti sebelumnya).
-- **Environment sudah pernah diisi** → NPM yang di-submit **wajib cocok** dengan NPM yang sudah tercatat sebelumnya. Kalau tidak cocok, request ditolak (`403 Forbidden`) dan TUI menampilkan pesan error yang jelas, **tidak** melanjutkan ke shell.
-
-Logic lengkap ada di `IdentifyEnvironment()`, lihat [API Backend § 5.4a](05-api-backend.md#54a-verifikasi-identitas).
-
-## 4.3 Environment Variable
-
-TUI membaca 2 nilai konfigurasi saat start:
-
-| Variable | Contoh | Keterangan |
-|---|---|---|
-| `PRAKTIKUM_API_URL` | `http://10.184.56.1:8080` | Alamat Go backend, dari sudut pandang container (lewat gateway `lxdbr0`) |
-| `PRAKTIKUM_API_TOKEN` | string hex 64 karakter | Token unik per environment, di-generate saat provisioning |
-
-Nilai ini di-inject lewat `lxc config set <container> environment.KEY=value` saat provisioning (lihat [Infrastruktur LXD](02-infrastruktur-lxd.md#26-provisioning-clone-langsung-dari-master)).
-
-### Kenapa tidak cukup `os.Getenv()` saja
-
-Env var yang di-set lewat `lxc config set environment.*` hanya "menempel" pada proses **init container (PID 1)**. Proses yang dijalankan lewat SSH (lewat PAM) mendapat environment yang bersih dan **tidak otomatis mewarisi** env var itu — beda dengan `lxc exec` yang secara eksplisit meneruskannya.
-
-Solusinya, TUI membaca env var lewat fungsi `getContainerEnv()` yang fallback ke `/proc/1/environ` kalau `os.Getenv()` kosong:
-
-```go
-func getContainerEnv(key string) string {
-    if v := os.Getenv(key); v != "" {
-        return v
-    }
-    data, err := os.ReadFile("/proc/1/environ")
-    if err != nil {
-        return ""
-    }
-    for _, entry := range strings.Split(string(data), "\x00") {
-        if strings.HasPrefix(entry, key+"=") {
-            return strings.TrimPrefix(entry, key+"=")
-        }
-    }
-    return ""
-}
-```
-
-> Pendekatan ini mengasumsikan TUI dijalankan sebagai **root** (karena `/proc/1/environ` hanya bisa dibaca oleh root). Ini sesuai keputusan project: praktikan login sebagai root langsung (bukan user non-root dengan sudo) — lihat [Log Perkembangan](09-progress-log.md) untuk alasannya. Kalau nanti kebijakan ini berubah ke user non-root, mekanisme pembacaan konfigurasi ini **perlu diganti** (misal ke file konfigurasi per-container, bukan env var LXD).
-
-## 4.4 Cara Kerja `ForceCommand`
-
-TUI dipaksa jalan otomatis saat SSH login (menggantikan shell biasa) lewat `ForceCommand` di `sshd_config`, diterapkan di **master container**:
-
-```bash
-echo "Match User *" >> /etc/ssh/sshd_config
-echo "    ForceCommand /usr/local/bin/praktikum-tui" >> /etc/ssh/sshd_config
-systemctl restart ssh
-```
-
-> **Perhatian format:** baris `Match User *` dan `ForceCommand ...` harus jadi **2 baris terpisah** yang benar (bukan tergabung 1 baris), dan `ForceCommand` harus terindentasi sebagai bagian dari blok `Match`. Kalau di-generate lewat script, gunakan 2 perintah `echo` terpisah, bukan satu string dengan `\n` di dalamnya — lihat [Troubleshooting](08-troubleshooting.md#32-bad-match-condition-di-sshd_config).
-
-Setelah baris ini ditambahkan, **wajib** divalidasi sebelum restart:
-```bash
-sshd -t   # harus tidak ada output sama sekali kalau valid
-```
-
-## 4.5 Exit Behavior
-
-Setelah identifikasi/verifikasi berhasil, TUI melakukan `syscall.Exec()` ke `$SHELL`:
-
-```go
-func execShell() {
-    shell := os.Getenv("SHELL")
-    if shell == "" {
-        shell = "/bin/bash"
-    }
-    env := os.Environ()
-    syscall.Exec(shell, []string{shell, "-l"}, env)
-}
-```
-
-Proses TUI **digantikan total** oleh shell (bukan tetap jalan di background menunggu) — lebih ringan dan lebih simpel secara resource.
-
-### 4.5a Fix Bug: Ctrl+C Malah Lanjut ke Shell
-
-**Gejala yang pernah terjadi:** menekan `Ctrl+C` di layar Dashboard (bukan di layar error) tidak menutup sesi seperti yang diharapkan — malah lanjut masuk ke shell root.
-
-**Penyebab:** versi awal `main()` menentukan boleh-tidaknya lanjut ke shell dengan mengecek `state == screenError`. Padahal `Ctrl+C` memanggil `tea.Quit` dari **state apapun** (termasuk Dashboard), sehingga kondisi pengecekan itu tidak pernah kena, dan kode jatuh ke `execShell()` begitu saja.
-
-**Solusi:** model sekarang punya field eksplisit `shouldContinueToShell bool`, default `false`. Field ini **hanya** diset `true` di satu titik: saat `identitySubmittedMsg` sukses (identifikasi/verifikasi benar-benar berhasil). Ctrl+C tidak pernah menyentuh flag ini, apapun state-nya:
-
-```go
-case identitySubmittedMsg:
-    if msg.err != nil {
-        // ... tampilkan error, flag TETAP false ...
-        return m, nil
-    }
-    m.shouldContinueToShell = true   // satu-satunya tempat ini diset true
-    return m, tea.Quit
-```
-
-```go
-// main()
-if !m.shouldContinueToShell {
-    fmt.Println("Sesi ditutup.")
-    os.Exit(0)
-}
-execShell()
-```
-
-Dengan ini, `Ctrl+C` di layar manapun konsisten menutup sesi, tidak pernah lanjut ke shell.
-
-## 4.6 Build & Pasang
+## 4.9 Build & Pasang
 
 ```bash
 cd praktikum-tui
-go mod tidy
+go mod tidy   # butuh gcc terpasang, lihat § 4.5
 go build -o praktikum-tui .
 
 lxc start master-<modul>
 lxc file push praktikum-tui master-<modul>/usr/local/bin/praktikum-tui
 lxc exec master-<modul> -- chmod +x /usr/local/bin/praktikum-tui
-# ... setup ForceCommand seperti 4.4 ...
+# ... setup PAM permit (§ 4.6) dan ForceCommand (Infrastruktur § 2.4) ...
 lxc stop master-<modul>
 ```
 
-Detail lengkap langkah operasional ada di [Panduan Operasional](07-panduan-operasional.md#pasang-tui-ke-master-container).
+Setelah master diupdate, **provisioning ulang** ruangan terkait lewat `lxd-control` supaya container baru membawa TUI versi terbaru (container lama tidak otomatis ter-update).
 
-## 4.7 Status Implementasi
+## 4.10 Status Implementasi
 
 | Master | TUI terpasang? |
 |---|---|
-| `master-netbegin` | ✅ Sudah, tervalidasi end-to-end lewat SSH sungguhan |
-| `master-netadmin` | ❌ Belum |
+| `master-netbegin` | ✅ Lengkap, tervalidasi end-to-end (SSH tanpa auth → identifikasi → pilih user → login) |
+| `master-netadmin` | ❌ Belum, perlu langkah yang sama |

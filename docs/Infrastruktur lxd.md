@@ -1,152 +1,115 @@
 # Infrastruktur LXD
 
-## Kondisi Awal
-
-Sebelum project ini sudah ada instalasi LXD yang pernah dipakai untuk uji coba sebelumnya:
-
-```bash
-lxc storage list    # pool-lab (zfs) sudah ada
-lxc network list    # lxdbr0 sudah ada dengan subnet 10.184.56.1/24
-lxc profile list    # hanya ada profile "default"
-lxc list            # ada 1 container master-netbegin (stopped, masih bersih)
-lxc image list      # ubuntu 24.04 sudah ter-cache lokal
-```
-
 ## Storage & Network
 
 | Komponen | Nilai | Catatan |
 |---|---|---|
-| Storage pool | `pool-lab` | Driver **ZFS** dipilih karena snapshot/clone berbasis copy-on-write, jauh lebih cepat & hemat disk dibanding driver `dir` |
+| Storage pool | `pool-lab` | Driver **ZFS** bersifat snapshot/clone berbasis copy-on-write, cepat & hemat disk |
 | Network bridge | `lxdbr0` | Subnet `10.184.56.1/24` |
 | LXD version | 5.21.6 LTS | |
 
 ## Profile LXD
 
-Dua profile dibuat untuk membedakan alokasi resource per jenis modul. Karena VM testing awal hanya 2 core/4GB, dipakai `limits.cpu.allowance` (persentase waktu CPU / CPU sharing), **bukan** `limits.cpu` (reserved core penuh), supaya container bisa berbagi core tanpa oversubscribe.
+Profile digunkan untuk mengalokasi resource per modul, memakai `limits.cpu.allowance` (CPU sharing) supaya container bisa berbagi core tanpa kelebihan beban
 
 ```bash
-# netbegin — ringan
-lxc profile create kursus-netbegin
-lxc profile device add kursus-netbegin root disk path=/ pool=pool-lab
-lxc profile device add kursus-netbegin eth0 nic network=lxdbr0
-lxc profile set kursus-netbegin limits.cpu.allowance 20%
-lxc profile set kursus-netbegin limits.memory 256MB
+lxc profile create praktikum-netbegin
+lxc profile device add praktikum-netbegin root disk path=/ pool=pool-lab
+lxc profile device add praktikum-netbegin eth0 nic network=lxdbr0
+lxc profile set praktikum-netbegin limits.cpu.allowance 20%
+lxc profile set praktikum-netbegin limits.memory 256MB
 
-# netadmin — lebih berat
-lxc profile create kursus-netadmin
-lxc profile device add kursus-netadmin root disk path=/ pool=pool-lab
-lxc profile device add kursus-netadmin eth0 nic network=lxdbr0
-lxc profile set kursus-netadmin limits.cpu.allowance 40%
-lxc profile set kursus-netadmin limits.memory 512MB
+lxc profile create praktikum-netadmin
+lxc profile device add praktikum-netadmin root disk path=/ pool=pool-lab
+lxc profile device add praktikum-netadmin eth0 nic network=lxdbr0
+lxc profile set praktikum-netadmin limits.cpu.allowance 40%
+lxc profile set praktikum-netadmin limits.memory 512MB
 ```
-
-> **Catatan skalabilitas:** angka di atas hanya untuk skala uji coba (2 core/4GB, 3 container/ruang). Saat digunakan ke server dengan spek lebih besar, jalankan `lxc profile set` ulang dengan nilai baru yang diperlukan tidak perlu rebuild profile dari nol
 
 ## Master Container
 
-Master container merupakan template per modul. Selalu **stopped** kecuali sedang dikonfigurasi, container ini tidak digunakan langsung oleh praktikan, hanya jadi sumber clone.
+Master container adalah tamplate per modul, master ini harus selalu stopped keculai sedang di konfigurasi
 
-### Konvensi penamaan
-
-```
-master-<nama-modul>
-```
-Contoh: `master-netbegin`, `master-netadmin`.
-
-### Langkah setup umum
+### Setup umum
 
 ```bash
-lxc start master-<nama-modul>
-lxc exec master-<nama-modul> -- bash
-```
-
-Di dalam container:
-```bash
+lxc start master-<modul>
+lxc exec master-<modul> -- bash
 apt update && apt upgrade -y
 apt install -y openssh-server
-# setup dasar sesuai kebutuhan modul
 ```
 
-### Fix penting: SSH socket activation
+### SSH socket activation
 
-Ubuntu 22.04+/24.04 memakai **socket activation** untuk sshd, dengan kata lain `ssh.service` baru muncul saat ada koneksi masuk ke `ssh.socket`, bukan selalu aktif. Ini menyebabkan percobaan SSH pertama ke container hasil clone kadang gagal, Fix diterapkan di **setiap master**:
+Terdapat sebuah bug do Ubuntu 22.04+/24.04 dimana socket activation untuk sshd, sehingga menyebabkan koneksi SSH pertama kadang gagal
+```bash
+lxc exec master-<modul> -- systemctl disable ssh.socket
+lxc exec master-<modul> -- systemctl enable ssh.service
+lxc exec master-<modul> -- systemctl start ssh.service
+```
+
+### SSH tanpa credential
+
+Supaya praktikan tidak perlu memasukkan username/password SSH apapun sehingga praktikan langsung masuk ke `lxd-tui`, PAM stack untuk sshd diganti menjadikannya selalu meloloskan koneksi:
+```bash
+echo "auth     required pam_permit.so" > /etc/pam.d/sshd
+echo "account  required pam_permit.so" >> /etc/pam.d/sshd
+echo "session  required pam_permit.so" >> /etc/pam.d/sshd
+```
+
+Dan di `/etc/ssh/sshd_config.d/99-open-access.conf`:
+```
+PermitRootLogin yes
+PasswordAuthentication no
+KbdInteractiveAuthentication yes
+AuthenticationMethods keyboard-interactive
+```
+**Disclaimer** 
+wajib validasi sebelum restart dengan `sshd -t` harus tidak ada output sama sekali
+
+### `ForceCommand` supaya TUI otomatis jalan saat SSH login
 
 ```bash
-lxc exec master-<nama-modul> -- systemctl disable ssh.socket
-lxc exec master-<nama-modul> -- systemctl enable ssh.service
-lxc exec master-<nama-modul> -- systemctl start ssh.service
-lxc exec master-<nama-modul> -- systemctl status ssh.service   # pastikan "active (running)"
+echo "Match User *" >> /etc/ssh/sshd_config
+echo "ForceCommand /usr/local/bin/lxd-tui" >> /etc/ssh/sshd_config
 ```
 
 ### Selesai konfigurasi
 
 ```bash
 exit
-lxc stop master-<nama-modul>
+lxc stop master-<modul>
 ```
 
 ## Skema Penamaan & Port SSH
 
 | Ruangan | Prefix Port |
 |---|---|
-| `f491` | `21` |
-| `f492` | `22` |
-| `f4111` | `23` |
-| `f4112` | `24` |
+| `ruang1` | `21` |
+| `ruang2` | `22` |
+| `ruang3` | `23` |
+| `ruang4` | `24` |
 
-Nama container: `<ruangan>-<nomor 2 digit>`, contoh `f491-01`, `f491-02`, dst.
-Port SSH: `<prefix><nomor>`, contoh `f491-01` → port `2101`.
+Nama container: `<ruangan>-<nomor 2 digit>` (`ruangan-01`)
+Port SSH: `<prefix><nomor>` (`2101`)
+Dipetakan lewat **proxy device** LXD
 
-Port dipetakan lewat **proxy device** LXD:
-```bash
-lxc config device add <nama-container> proxy22 proxy listen=tcp:0.0.0.0:<port> connect=tcp:127.0.0.1:22
-```
-
-## Provisioning: Clone Langsung dari Master
-
-Dipilih clone langsung dari master container (bukan publish ke image dulu), karena:
-- `pool-lab` berbasis ZFS → `lxc copy` dari container stopped berjalan sebagai **ZFS clone**, cepat & hemat disk.
-- Master bisa diupdate kapan saja tanpa perlu re-publish image.
-- Sesuai alur kerja: clone di depan sesi, hapus/reset di akhir sesi.
+### Urutan operasi pembuatan container
 
 ```bash
-lxc copy master-<modul> <nama-container> --storage pool-lab --profile praktikum-<modul>
-lxc start <nama-container>
-lxc config device add <nama-container> proxy22 proxy listen=tcp:0.0.0.0:<port> connect=tcp:127.0.0.1:22
-lxc snapshot <nama-container> clean
+lxc copy "$MASTER_CONTAINER" "$NAME" --storage pool-lab --profile "$PROFILE"
+
+lxc config set "$NAME" environment.PRAKTIKUM_API_URL "$API_URL"
+lxc config set "$NAME" environment.PRAKTIKUM_API_TOKEN "$TOKEN"
+
+lxc start "$NAME"
+lxc config device add "$NAME" proxy22 proxy listen=tcp:0.0.0.0:"$PORT" connect=tcp:127.0.0.1:22
+# ... tunggu Running, lalu buat snapshot...
+lxc snapshot "$NAME" clean
 ```
 
-Snapshot `clean` dibuat **segera setelah container running**, sebagai baseline untuk reset (lihat 2.7).
+## Reset Praktikan & Reset Sesi
 
-> **PENTING — urutan `lxc config set environment.*` vs `lxc start`:** kalau container butuh env var yang di-inject lewat `lxc config set <container> environment.KEY=value` (dipakai untuk token API, lihat [API Backend](05-api-backend.md) & [Alur End-to-End](06-alur-end-to-end.md)), config itu **HARUS di-set sebelum `lxc start`**. LXD hanya menerapkan `environment.*` ke proses init (PID 1) pada saat container start — kalau di-set setelah container sudah nyala, PID 1 yang sudah jalan duluan tidak pernah membaca ulang config itu. Detail masalah ini ada di [Troubleshooting](08-troubleshooting.md#33-env-var-token-tidak-terbaca-di-sesi-ssh).
+Pada reset praktikan tetap murni **ZFS snapshot restore** Tapi di level `lxd-control` dengan melepas identitas praktikan, supaya praktikan yang menggunakan environment tersebut tidak tertolak saat verifikasi identitas karena data lama masih ada.
 
-## Reset & Recovery
-
-Dua level reset, keduanya berbasis **ZFS snapshot restore**:
-
-```bash
-# Reset 1 praktikan/container tertentu
-./kelola-lxd.sh reset f491-03
-
-# Reset seluruh container dalam satu ruangan
-./kelola-lxd.sh reset-room f491
-```
-
-Snapshot `clean` dibuat otomatis sesaat setelah container pertama kali provisioning dan running, sehingga `restore` selalu mengembalikan container ke kondisi persis seperti baru selesai di-clone dari master.
-
-**Kenapa snapshot restore, bukan delete+reclone?** Snapshot restore lebih cepat dan **proxy device tetap nempel** (tidak perlu setup ulang port SSH), karena container-nya tidak dihapus, hanya di-restore state-nya.
-
-## Script `kelola-lxd.sh`
-
-Script bash untuk mengelola siklus hidup container per ruangan. Lihat isi lengkap script dan penjelasan tiap bagian di [Panduan Operasional](07-panduan-operasional.md#kelola-lxdsh).
-
-Action yang didukung:
-
-| Action | Fungsi |
-|---|---|
-| `start <ruang> <modul>` | Provisioning container baru untuk 1 ruangan |
-| `stop <ruang>` | Hapus semua container di 1 ruangan |
-| `reset <nama-container>` | Reset 1 container ke snapshot `clean` |
-| `reset-room <ruang>` | Reset semua container di 1 ruangan |
-
-> Script ini saat ini juga terintegrasi dengan database (generate token, insert session/environment) untuk keperluan testing TUI↔API. Bagian ini bersifat **sementara** dan akan digantikan endpoint provisioning permanen di Go backend — lihat [Log Perkembangan](09-progress-log.md).
+Selain reset praktikan, terdapat juga reset sesi dengan memindahkan environment ke sesi yang berbeda, tanpa harus menghapus atau membuat ulang container. Ini menjadikan terlaksananya berbagai sesi dalam 1 hari yang menggunakan ruangan sama.

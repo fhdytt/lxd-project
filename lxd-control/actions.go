@@ -8,7 +8,6 @@ import (
 	"os/exec"
 )
 
-// GenerateToken membuat token dengan karakter hex untuk otentikasi TUI praktikan ke API backend, plus hash SHA-256-nya. Token asli TIDAK PERNAH disimpan ke database
 func GenerateToken() (token, hash string, err error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
