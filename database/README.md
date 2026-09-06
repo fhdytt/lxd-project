@@ -82,16 +82,6 @@ Tabel environments ini digunakan untuk setiap data pada setiap praktikan ketika 
 
 Tambahan Constraint: `UNIQUE (session_id, slot_number)` dan `UNIQUE (session_id, ssh_port)`, hal ini mencegah 2 environment bentrok di slot/port yang sama dalam satu sesi.
 
-### `admins` (untuk kebutuhan dashboard web)
-Login web dashboard
-
-| Kolom | Tipe | Keterangan |
-|---|---|---|
-| `id` | UUID | PK |
-| `username` | VARCHAR, UNIQUE | |
-| `password_hash` | TEXT | |
-| `full_name` | VARCHAR | |
-
 ## Dummy Data
 
 `dummy-data.sql` menyertakan awalan data untuk `rooms` dan `modules`

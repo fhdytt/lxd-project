@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// EnvInfo merepresentasikan data environment yang ditampilkan di dashboard.
 type EnvInfo struct {
 	ContainerName     string `json:"container_name"`
 	CourseCode        string `json:"course_code"`
@@ -22,7 +21,6 @@ type EnvInfo struct {
 	AlreadyIdentified bool   `json:"already_identified"`
 }
 
-// APIClient membungkus komunikasi HTTP ke Go backend.
 type APIClient struct {
 	BaseURL string
 	Token   string
@@ -68,10 +66,6 @@ type identifyRequest struct {
 	NPM  string `json:"npm"`
 }
 
-// ErrIdentityMismatch dikembalikan saat environment sudah pernah diisi oleh
-// praktikan lain, dan NPM yang di-submit sekarang tidak cocok. Ini SENGAJA
-// bukan error fatal biasa — TUI menampilkan pesan yang jelas ke pengguna,
-// bukan pesan error generik.
 var ErrIdentityMismatch = errors.New("nama/npm tidak cocok dengan environment ini")
 
 func (c *APIClient) SubmitIdentity(nama, npm string) error {

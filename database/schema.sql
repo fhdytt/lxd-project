@@ -88,16 +88,6 @@ CREATE INDEX idx_environments_session ON environments (session_id);
 CREATE INDEX idx_environments_praktikan ON environments (praktikan_id);
 CREATE INDEX idx_environments_status ON environments (status);
 
--- Table admins untuk menyimpan informasi admin(Kebutuhan Dashboard Web)
-CREATE TABLE admins (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username        VARCHAR(50) UNIQUE NOT NULL,
-    password_hash   TEXT NOT NULL,
-    full_name       VARCHAR(150),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at   TIMESTAMPTZ
-);
-
 -- Trigger untuk mengupdate updated_at saat record diubah dan mencegah perubahan created_at
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

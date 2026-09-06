@@ -10,18 +10,12 @@ import (
 	"github.com/amoghe/go-crypt"
 )
 
-// LocalUser merepresentasikan satu akun Linux yang bisa dipilih praktikan
-// untuk login, dibaca langsung dari /etc/passwd di dalam container itu
-// sendiri (bukan dari API — ini murni informasi lokal container).
 type LocalUser struct {
 	Username string
 	UID      int
 }
 
-// listLocalUsers membaca /etc/passwd dan mengembalikan daftar user yang
-// masuk akal untuk dipilih praktikan: root, plus user apapun yang sudah
-// dibuat praktikan sendiri selama praktikum (UID >= 1000, punya shell
-// interaktif, bukan akun service/system).
+// listLocalUsers membaca /etc/passwd dan mengembalikan daftar user 
 func listLocalUsers() ([]LocalUser, error) {
 	f, err := os.Open("/etc/passwd")
 	if err != nil {
@@ -72,21 +66,7 @@ func listLocalUsers() ([]LocalUser, error) {
 	return users, nil
 }
 
-// verifyLocalPassword mencocokkan password yang diketik praktikan dengan
-// hash yang tersimpan di /etc/shadow untuk user tertentu.
-//
-// PENTING: verifikasi dilakukan lewat fungsi crypt(3) bawaan SISTEM
-// (lewat cgo, package amoghe/go-crypt), BUKAN reimplementasi algoritma
-// hash di Go murni. Ini disengaja — Ubuntu 22.04+ memakai algoritma
-// "yescrypt" (prefix hash "$y$") sebagai default, dan library Go-murni
-// (misal GehirnInc/crypt) tidak mengenali algoritma ini sama sekali,
-// bahkan bisa panic saat mencoba. Dengan memanggil crypt(3) milik OS
-// langsung, verifikasi otomatis kompatibel dengan algoritma APAPUN yang
-// dipakai sistem, tanpa TUI perlu tahu detailnya.
 func verifyLocalPassword(username, password string) (ok bool, err error) {
-	// Pengaman terakhir: kalau ada apapun yang tidak terduga (termasuk dari
-	// binding cgo), jangan sampai keseluruhan proses TUI ikut mati dan
-	// memutus sesi SSH praktikan begitu saja.
 	defer func() {
 		if r := recover(); r != nil {
 			ok = false
@@ -109,14 +89,9 @@ func verifyLocalPassword(username, password string) (ok bool, err error) {
 
 		hash := fields[1]
 		if hash == "" || hash == "*" || hash == "!" || strings.HasPrefix(hash, "!") {
-			// Akun tanpa password valid (dikunci/disabled) -> tidak boleh lolos.
 			return false, nil
 		}
 
-		// Trik standar crypt(3): salt yang dipakai adalah HASH ITU SENDIRI
-		// (bukan cuma bagian salt-nya) -- crypt() otomatis membaca prefix
-		// algoritma & salt dari situ, lalu mengembalikan hash lengkap yang
-		// bisa dibandingkan string-equal dengan hash aslinya.
 		computed, err := crypt.Crypt(password, hash)
 		if err != nil {
 			return false, fmt.Errorf("gagal memverifikasi password (algoritma hash tidak didukung sistem ini): %w", err)

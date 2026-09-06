@@ -7,9 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderBox membungkus logo LEPKOM + konten dalam satu box bergaya, dengan
-// lebar yang menyesuaikan ukuran terminal (responsive) dan diposisikan di
-// tengah layar kalau ukuran terminal sudah diketahui.
 func (m model) renderBox(content string) string {
 	width := 56
 	if m.windowWidth > 0 {
@@ -21,7 +18,7 @@ func (m model) renderBox(content string) string {
 			width = 30
 		}
 	}
-	if logoWidth := lipgloss.Width(lepkomLogo); width < logoWidth {
+	if logoWidth := lipgloss.Width(Logo); width < logoWidth {
 		width = logoWidth
 	}
 
@@ -34,7 +31,6 @@ func (m model) renderBox(content string) string {
 	return box
 }
 
-// View merender tampilan terminal berdasarkan state saat ini.
 func (m model) View() string {
 	switch m.state {
 
@@ -47,14 +43,14 @@ func (m model) View() string {
 	case screenInputNama:
 		hint := "Masukkan nama lengkap:"
 		if m.envInfo != nil && m.envInfo.AlreadyIdentified {
-			hint = "Environment ini sudah terdaftar. Masukkan nama untuk verifikasi:"
+			hint = "Environment terdaftar. Masukkan nama untuk verifikasi:"
 		}
 		return m.renderBox(fmt.Sprintf(
 			"%s\n\n%s\n%s\n\n%s",
 			titleStyle.Render("IDENTIFIKASI PRAKTIKAN"),
 			labelStyle.Render(hint),
 			m.inputNama.View(),
-			hintStyle.Render("[Enter] lanjut  •  [Ctrl+C] batal"),
+			hintStyle.Render("[Enter] lanjut  -  [Ctrl+C] batal"),
 		))
 
 	case screenInputNPM:
@@ -64,7 +60,7 @@ func (m model) View() string {
 			labelStyle.Render("Nama:"), valueStyle.Render(m.inputNama.Value()),
 			labelStyle.Render("Masukkan NPM:"),
 			m.inputNPM.View(),
-			hintStyle.Render("[Enter] kirim  •  [Esc] kembali  •  [Ctrl+C] batal"),
+			hintStyle.Render("[Enter] kirim  -  [Esc] kembali  -  [Ctrl+C] batal"),
 		))
 
 	case screenSubmitting:
@@ -84,7 +80,7 @@ func (m model) View() string {
 			labelStyle.Render("User:"), valueStyle.Render(m.selectedUsername),
 			m.inputPassword.View(),
 			errLine,
-			hintStyle.Render("[Enter] masuk  •  [Esc] ganti user  •  [Ctrl+C] batal"),
+			hintStyle.Render("[Enter] masuk  -  [Esc] ganti user  -  [Ctrl+C] batal"),
 			"",
 		))
 
@@ -93,7 +89,7 @@ func (m model) View() string {
 			"%s\n\n%s\n\n%s",
 			errStyle.Render("Terjadi kesalahan:"),
 			m.errMsg,
-			hintStyle.Render("[Enter] coba lagi  •  [Ctrl+C] keluar"),
+			hintStyle.Render("[Enter] coba lagi  -  [Ctrl+C] keluar"),
 		))
 	}
 	return ""
@@ -112,7 +108,7 @@ func (m model) viewDashboard() string {
 	body := fmt.Sprintf(
 		"%s\n%s\n%s\n\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s\n\n%s",
 		titleStyle.Render("DASHBOARD SESI PRAKTIKUM"),
-		subtitleStyle.Render("Sistem Manajemen Environment Praktikum"),
+		subtitleStyle.Render("Sistem Manajemen Environment Linux"),
 		divider,
 		labelStyle.Render("Kode Kursus  :"), valueStyle.Render(info.CourseCode),
 		labelStyle.Render("Modul        :"), valueStyle.Render(info.Module),
@@ -121,7 +117,7 @@ func (m model) viewDashboard() string {
 		labelStyle.Render("Tanggal      :"), valueStyle.Render(info.SessionDate),
 		labelStyle.Render("Status Env   :"), lipgloss.NewStyle().Bold(true).Foreground(leafGreen).Render(info.Status),
 		labelStyle.Render("Identifikasi :"), identStatus,
-		hintStyle.Render("PRESS [ENTER] TO CONTINUE  •  [CTRL+C] EXIT"),
+		hintStyle.Render("PRESS [ENTER] TO CONTINUE  -  [CTRL+C] EXIT"),
 	)
 
 	return body
@@ -138,7 +134,7 @@ func (m model) viewSelectUser() string {
 
 	for i, u := range m.localUsers {
 		if i == m.userCursor {
-			b.WriteString(cursorStyle.Render("▶ " + u.Username))
+			b.WriteString(cursorStyle.Render("> " + u.Username))
 		} else {
 			b.WriteString(menuItemDim.Render("  " + u.Username))
 		}
@@ -146,6 +142,6 @@ func (m model) viewSelectUser() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("[↑/↓] pilih  •  [Enter] konfirmasi  •  [Ctrl+C] batal"))
+	b.WriteString(hintStyle.Render("[^/v] pilih  -  [Enter] konfirmasi  -  [Ctrl+C] batal"))
 	return b.String()
 }

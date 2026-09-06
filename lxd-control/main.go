@@ -9,10 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// main sengaja setipis mungkin — cuma "merakit" komponen (baca config, buka
-// koneksi database, jalankan program TUI). Semua logic sesungguhnya ada di
-// file lain: model.go (state & tipe data), commands.go (operasi async),
-// update.go (transisi state), view.go (rendering tampilan).
 func main() {
 	cfg, err := LoadConfig()
 	if err != nil {

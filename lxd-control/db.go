@@ -17,8 +17,6 @@ type Module struct {
 	Name string
 }
 
-// EnvironmentRow merepresentasikan satu baris untuk ditampilkan di layar
-// daftar environment — sudah di-JOIN dengan sessions, modules, praktikan.
 type EnvironmentRow struct {
 	ContainerName     string
 	SSHPort           int
@@ -26,7 +24,7 @@ type EnvironmentRow struct {
 	HasCleanSnapshot  bool
 	CourseCode        string
 	Module            string
-	PraktikanNama     string // kosong kalau belum diisi
+	PraktikanNama     string
 	PraktikanNPM      string
 }
 
@@ -66,9 +64,6 @@ func ListModules(ctx context.Context, db *pgxpool.Pool) ([]Module, error) {
 	return result, rows.Err()
 }
 
-// ListEnvironmentsForRoom mengambil semua environment yang SAAT INI ada
-// (masih tercatat di database — row-nya dihapus otomatis saat "stop") untuk
-// satu ruangan, diurutkan berdasarkan slot.
 func ListEnvironmentsForRoom(ctx context.Context, db *pgxpool.Pool, roomNama string) ([]EnvironmentRow, error) {
 	const query = `
 		SELECT
@@ -103,8 +98,6 @@ func ListEnvironmentsForRoom(ctx context.Context, db *pgxpool.Pool, roomNama str
 	return result, rows.Err()
 }
 
-// ListContainerNamesForRoom dipakai layar "reset 1 container" — cuma butuh
-// nama container-nya saja untuk daftar pilihan.
 func ListContainerNamesForRoom(ctx context.Context, db *pgxpool.Pool, roomNama string) ([]string, error) {
 	const query = `
 		SELECT e.container_name
@@ -130,8 +123,6 @@ func ListContainerNamesForRoom(ctx context.Context, db *pgxpool.Pool, roomNama s
 	}
 	return result, rows.Err()
 }
-
-// ==================== CRUD: ROOMS ====================
 
 type RoomDetail struct {
 	Nama       string
@@ -165,8 +156,6 @@ func CreateRoom(ctx context.Context, db *pgxpool.Pool, nama, portPrefix string, 
 	return err
 }
 
-// UpdateRoom mencari row berdasarkan nama LAMA (originalNama), lalu
-// menimpanya dengan nilai baru — termasuk kemungkinan nama itu sendiri berubah.
 func UpdateRoom(ctx context.Context, db *pgxpool.Pool, originalNama, newNama, portPrefix string, capacity int) error {
 	_, err := db.Exec(ctx,
 		"UPDATE rooms SET nama = $1, port_prefix = $2, capacity = $3 WHERE nama = $4",
@@ -175,16 +164,10 @@ func UpdateRoom(ctx context.Context, db *pgxpool.Pool, originalNama, newNama, po
 	return err
 }
 
-// DeleteRoom akan GAGAL (bukan silent success) kalau masih ada sessions yang
-// mereferensikan ruangan ini — constraint FK sessions.room_id memakai
-// ON DELETE RESTRICT secara sengaja, supaya ruangan yang masih punya
-// riwayat sesi tidak bisa terhapus tanpa sadar.
 func DeleteRoom(ctx context.Context, db *pgxpool.Pool, nama string) error {
 	_, err := db.Exec(ctx, "DELETE FROM rooms WHERE nama = $1", nama)
 	return err
 }
-
-// ==================== CRUD: SESSIONS ====================
 
 type SessionDetail struct {
 	ID            string
@@ -239,10 +222,6 @@ func getModuleIDByCode(ctx context.Context, db *pgxpool.Pool, code string) (stri
 	return id, nil
 }
 
-// CreateSession sengaja menerima nama ruangan & kode modul (bukan UUID
-// langsung) supaya pemanggilnya (update.go) tidak perlu tahu detail UUID
-// internal — sesuai bagaimana admin berinteraksi lewat menu (pilih nama,
-// bukan ID).
 func CreateSession(ctx context.Context, db *pgxpool.Pool, courseCode, roomNama, moduleCode string, meetingNumber int, sessionDate, status string) error {
 	roomID, err := getRoomIDByNama(ctx, db, roomNama)
 	if err != nil {
@@ -260,11 +239,6 @@ func CreateSession(ctx context.Context, db *pgxpool.Pool, courseCode, roomNama, 
 	return err
 }
 
-// UpdateSession SENGAJA tidak mengizinkan mengubah ruangan/modul sesi yang
-// sudah ada — environment yang sudah diprovisioning terikat ke kombinasi
-// ruangan+modul saat sesi itu dibuat, mengubahnya belakangan berisiko bikin
-// data tidak konsisten. Yang bisa diubah: course_code, nomor pertemuan,
-// tanggal, dan status.
 func UpdateSession(ctx context.Context, db *pgxpool.Pool, id, courseCode string, meetingNumber int, sessionDate, status string) error {
 	_, err := db.Exec(ctx, `
 		UPDATE sessions SET course_code = $1, meeting_number = $2, session_date = $3, status = $4
@@ -273,22 +247,11 @@ func UpdateSession(ctx context.Context, db *pgxpool.Pool, id, courseCode string,
 	return err
 }
 
-// DeleteSession akan ikut MENGHAPUS semua baris di tabel environments yang
-// terhubung ke sesi ini (ON DELETE CASCADE di skema). Container LXD-nya
-// sendiri TIDAK ikut terhapus otomatis — jadi row yang hilang ini bisa
-// membuat container "yatim" (ada di LXD tapi tidak lagi tercatat di
-// database). Peringatan ini WAJIB ditampilkan ke admin sebelum konfirmasi,
-// lihat breadcrumb() di view.go.
 func DeleteSession(ctx context.Context, db *pgxpool.Pool, id string) error {
 	_, err := db.Exec(ctx, "DELETE FROM sessions WHERE id = $1", id)
 	return err
 }
 
-// ==================== PROVISIONING (dipakai oleh commands.go) ====================
-
-// ModuleDetail mirip Module, tapi ikut membawa master_container & lxd_profile
-// — informasi yang dibutuhkan untuk benar-benar menjalankan provisioning
-// (bukan cuma ditampilkan di menu).
 type ModuleDetail struct {
 	Code            string
 	Name            string
@@ -318,15 +281,6 @@ func GetRoomByNama(ctx context.Context, db *pgxpool.Pool, nama string) (*RoomDet
 	return &r, nil
 }
 
-// ListSessionsForProvision mencari sesi yang LAYAK dipakai untuk
-// provisioning (status scheduled/active) untuk kombinasi ruangan+modul
-// tertentu — dipakai admin untuk "menempel" provisioning ke sesi yang sudah
-// dibuat lewat menu Kelola Sesi, bukan bikin sesi baru asal-asalan.
-//
-// Diurutkan berdasarkan KEDEKATAN TANGGAL ke hari ini (bukan sekadar
-// terbaru) — supaya sesi yang paling relevan (biasanya "hari ini" atau
-// paling dekat) selalu muncul di posisi paling atas, dan admin biasanya
-// tinggal tekan Enter tanpa perlu scroll cari-cari di antara puluhan sesi.
 func ListSessionsForProvision(ctx context.Context, db *pgxpool.Pool, roomNama, moduleCode string) ([]SessionDetail, error) {
 	const query = `
 		SELECT s.id, s.course_code, r.nama, m.code, s.meeting_number, s.session_date::text, s.status
@@ -353,8 +307,6 @@ func ListSessionsForProvision(ctx context.Context, db *pgxpool.Pool, roomNama, m
 	return result, rows.Err()
 }
 
-// InsertEnvironment upsert (aman dipanggil ulang tanpa "stop" dulu, sama
-// seperti perilaku kelola-lxd.sh versi lama).
 func InsertEnvironment(ctx context.Context, db *pgxpool.Pool, sessionID, containerName string, slot, port int, tokenHash string) error {
 	_, err := db.Exec(ctx, `
 		INSERT INTO environments (session_id, container_name, slot_number, ssh_port, status, api_token_hash)
@@ -377,13 +329,6 @@ func MarkSnapshotReady(ctx context.Context, db *pgxpool.Pool, containerName stri
 	return err
 }
 
-// UnlinkPraktikan melepas kaitan environment ini dari praktikan yang
-// sebelumnya mengidentifikasi diri di sini. WAJIB dipanggil setiap kali
-// environment di-reset (lihat resetContainerCmd/resetRoomCmd di
-// commands.go) — kalau tidak, environment ini akan TERKUNCI SELAMANYA ke
-// identitas praktikan lama walau isi container-nya sudah bersih, karena
-// verifikasi identitas (lihat API § 5.4a) membandingkan ke row praktikan
-// yang tercatat di sini.
 func UnlinkPraktikan(ctx context.Context, db *pgxpool.Pool, containerName string) error {
 	_, err := db.Exec(ctx,
 		"UPDATE environments SET praktikan_id = NULL, identified_at = NULL WHERE container_name = $1",
@@ -392,10 +337,6 @@ func UnlinkPraktikan(ctx context.Context, db *pgxpool.Pool, containerName string
 	return err
 }
 
-// GetRoomCurrentModule mendeteksi modul yang SEDANG dipakai container-container
-// di suatu ruangan (dilihat dari sesi yang terkait ke environment yang ada).
-// Dipakai fitur "Ganti Sesi Ruangan" supaya admin tidak perlu pilih modul
-// manual lagi — sistem sudah tahu dari container yang sudah ada.
 func GetRoomCurrentModule(ctx context.Context, db *pgxpool.Pool, roomNama string) (string, error) {
 	const query = `
 		SELECT m.code
@@ -414,12 +355,6 @@ func GetRoomCurrentModule(ctx context.Context, db *pgxpool.Pool, roomNama string
 	return code, nil
 }
 
-// RepointSession memindahkan satu environment supaya nempel ke sesi (baris
-// `sessions`) yang BERBEDA — dipakai saat "pindah kelas/pertemuan" tanpa
-// perlu hapus-bikin ulang container. HANYA aman dipakai kalau modul sesi
-// lama dan sesi baru SAMA (master container & profile LXD identik) —
-// kalau modulnya beda, harus lewat stop+start biasa (container-nya memang
-// perlu diganti total).
 func RepointSession(ctx context.Context, db *pgxpool.Pool, containerName, newSessionID string) error {
 	_, err := db.Exec(ctx, "UPDATE environments SET session_id = $1 WHERE container_name = $2", newSessionID, containerName)
 	return err
@@ -430,11 +365,6 @@ func DeleteEnvironmentByContainerName(ctx context.Context, db *pgxpool.Pool, con
 	return err
 }
 
-// CreateSessionsBulk membuat BANYAK sesi sekaligus untuk 1 course_code,
-// dimulai dari nomor pertemuan tertentu (TIDAK selalu dari pertemuan 1 —
-// misal modul netbegin cuma pakai container di pertemuan ke-8, modul
-// netadmin dari pertemuan ke-2 sampai ke-7). Tanggal tiap pertemuan
-// dihitung otomatis: startDate + (i * intervalDays), i=0,1,2,...
 func CreateSessionsBulk(ctx context.Context, db *pgxpool.Pool, courseCode, roomNama, moduleCode string, startMeetingNumber, meetingCount, intervalDays int, startDate string) error {
 	roomID, err := getRoomIDByNama(ctx, db, roomNama)
 	if err != nil {

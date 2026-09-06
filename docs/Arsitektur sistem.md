@@ -2,56 +2,50 @@
 
 ## Latar Belakang
 
-Sebuah laboratorium harus menyediakan environment Linux untuk kebutuhan praktikum dengan banyak mahasiswa secara bersamaan. Dengan environment yang dikelola secara manual, muncul beberapa masalah:
+Terdapat sebuah laboratorium harus menyediakan environment Linux untuk terselenggaranya praktikum dengan banyaknya mahasiswa secara bersamaan, kemudian muncul beberapa masalah:
 
-- Konfigurasi dari praktikum sebelumnya bisa terbawa ke sesi berikutnya.
-- Konflik penggunaan environment antar praktikan.
-- harus melakukan setup dan pemulihan secara manual
+- Konfigurasi dari sesi praktikum sebelumnya terbawa ke sesi berikutnya
+- Sering kali Konflik saat menggunakan environment linux dengan praktikan lain
+- Seorang admin harus melakukan setup dan reset secara manual
 
-Sistem ini dapat menyelesaikan permasalahannya dengan container LXD terisolasi per praktikan, menyediakan environment otomatis dari template (master container), identifikasi otomatis lewat dashboard terminal, dan reset environment berbasis snapshot, sehingga tidak perlu untuk memulai dari awal lagi hanya untuk meresetnya.
-
-**Skala target:** 4 ruangan lab masing-masing kurang dari 50 praktikan bersamaan.
-
-**Deployment:** sepenuhnya on-premise, di **1 server fisik** 
+Dengan Sistem ini menghasilkan sebuah container LXD yang dikhususkan untuk 1 praktikan 1 environment, dengan membuat container dengan otomatis melalui template container, identifikasi + login akun Linux secara otomatis melalui dashboard terminal, mereset environment dengan acuan snapshot, dan kemampuan untuk mereset environment ke pertemuan berikutnya tanpa hapus-bikin ulang containernya. Kemudian terkait banyaknya praktikan dan beban container per-sesi yang berat, maka pada sistem ini memberlakukan limitasi resource dengan mengkaitkan setiap materi dengan profile masing-masing materi.
 
 ## Diagram Arsitektur
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                   1 Server Fisik (Ubuntu server)                 │
+┌------------------------------------------------------------------┐
+│                    1 Server Fisik (Ubuntu)                       │
 │                                                                  │
-│   ┌──────────────────────────┐    ┌───────────────────────────┐  │
-│   │   Host OS (native)       │    │   LXD (container layer)   │  │
-│   │                          │    │                           │  │
-│   │  - PostgreSQL            │    │  master-netbegin (stopped)│  │
-│   │  - Go API backend        │◄───┤  master-netadmin (stopped)│  │
-│   │  - Web dashboard         │    │  f491-01 .. f491-XX       │  │
-│   │                          │    │  f492-01 .. f492-XX       │  │
-│   │                          │    │  f4111-.. / f4112-..      │  │
-│   │                          │    │  (tiap container jalankan │  │
-│   │                          │    │   tui saat SSH)           │  │
-│   └──────────────────────────┘    └───────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+│   ┌---------------------┐       ┌-----------------------------┐  │
+│   │    Host OS          │       │   LXD (container layer)     │  │
+│   │                     │       │                             │  │
+│   │  - PostgreSQL       │       │  master-container (stopped) │  │
+│   │  - lxd-api          | <---- |  master-container (stopped) │  │
+│   │  - lxd-control      | <---- |  kelola-lxd.sh (subprocess) │  │
+│   │                     │       │  ruang1-01 .. ruang1-XX     │  │
+│   │                     │       │  ruang2-01 .. ruang2-XX     │  │
+│   │                     │       │  ruang3-.. / ruang4-..      │  │
+│   └---------------------┘       └-----------------------------┘  |
+└------------------------------------------------------------------┘
 ```
 
-Alur data singkat:
+Terdapat 2 alur penggunaan yaitu :
 
 ```
-Praktikan --SSH--> Container (TUI)
-                        │
-                        │ HTTP + Bearer token
-                        ▼
-                  Go API Backend  <──── Web dashboard
-                        │
-                        ▼
-                   PostgreSQL
+Praktikan (untrusted)                    Admin (trusted)
+      │                                          │
+      V                                          V
+SSH tanpa credential (lxd-tui)           Berjalan di host (lxd-control)
+      │                                          │
+      │ HTTP + Bearer token                      ├──► PostgreSQL
+      V                                          │
+praktikum-api ----------> PostgreSQL             └──► scripting.sh ──► LXD
 ```
 
-## 1.3 Penjelasan Arsitektur
-- LXD, PostgreSQL, dan Go backend semuanya berjalan **native di 1 OS host yang sama**, secara sejajar (**bukan** nested dengan kata lain LXD tidak dijalankan di dalam LXD, PostgreSQL/Go juga tidak dijalankan di dalam container LXD).
-- Isolasi didapat dari hubungan **proses host vs container LXD** (container praktikan tetap terisolasi dari proses PostgreSQL/Go yang berjalan langsung di host).
-- Go backend akses LXD melalui **Unix socket lokal**, PostgreSQL diakses lewat **localhost**, tidak perlu remote API/TLS antar mesin.
-- Container praktikan (network `lxdbr0`) diblokir akses langsung ke port PostgreSQL (`5432`), hanya boleh akses port API Go (`8080`).
-- PostgreSQL dan Go backend diberikan jatah CPU/memory terjamin (`systemd` `CPUWeight`/`MemoryHigh`) supaya tidak terganggu saat ratusan container praktikan aktif bersamaan.
-- Data PostgreSQL idealnya di dataset ZFS/disk terpisah dari pool container (yang sering di-snapshot/restore), supaya I/O tidak saling mengganggu.
-- Karena hanya 1 server fisik (single point of failure), wajib ada `pg_dump` terjadwal yang disimpan **di luar** server ini.
+**Disclaimer** 
+Pada Container praktikan dapat diakses oleh siapa saja, jadi setiap aksinya perlu divalidasi lewat API dengan token per-environment. Namun untuk user Admin yang bertugas untuk mengontrol container sudah pasti trusted, menjadikan tidak perlu lapisan API tambahan serta langsung mengakses database dan LXD lebih sederhana dan tidak perlu menunggu endpoint API selesai dibuat.
+
+
+## SSH Praktikan Tanpa Credential
+
+Pada saat praktikan masuk menggunakan ssh cukup memasukkan username SSH apapun saat connect dengan begitu SSH berhasil terhubung dengan container langsung, kemudian praktikan akan masuk ke dashboard `lxd-tui`. Hal ini tercapai melalui konfigurasi PAM (`pam_permit`) di container, bukan melalui distribusi SSH key ke ratusan PC lab. Hal tersebut mengakibatkan praktikan wajib mengindetifikasi dengan nama + NPM, kemudian untuk mengakses shell praktikan harus memilih user linux yang tersedia
