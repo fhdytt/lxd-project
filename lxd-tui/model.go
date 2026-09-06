@@ -6,8 +6,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ==================== STATE ====================
-
 type screenState int
 
 const (
@@ -16,12 +14,11 @@ const (
 	screenInputNama
 	screenInputNPM
 	screenSubmitting
-	screenSelectUser    // pilih mau login sebagai user Linux apa
-	screenLocalPassword // masukkan password akun Linux yang dipilih
+	screenSelectUser   
+	screenLocalPassword 
 	screenError
 )
 
-// model adalah state Bubble Tea tunggal untuk seluruh aplikasi TUI praktikan.
 type model struct {
 	client *APIClient
 
@@ -29,9 +26,6 @@ type model struct {
 	envInfo *EnvInfo
 	errMsg  string
 
-	// shouldContinueToShell HANYA true kalau seluruh alur (identifikasi API
-	// + verifikasi password akun Linux) benar-benar selesai sukses. Ctrl+C
-	// atau error apapun TIDAK mengubah flag ini — lihat main.go.
 	shouldContinueToShell bool
 	selectedUsername      string
 
@@ -84,8 +78,7 @@ func initialModel(client *APIClient) model {
 	}
 }
 
-// ==================== STYLES ====================
-
+// STYLING
 var (
 	harborNavy = lipgloss.Color("#14213D")
 	slateMist  = lipgloss.Color("#8D99AE")
@@ -104,8 +97,6 @@ var (
 			Foreground(slateMist).
 			Italic(true)
 
-	// boxStyle TANPA Background() supaya menyatu dengan terminal (dipertahankan
-	// sesuai preferensi kamu sebelumnya).
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(harborNavy).
@@ -119,36 +110,27 @@ var (
 
 	hintStyle = lipgloss.NewStyle().Foreground(slateMist).Italic(true)
 	errStyle  = lipgloss.NewStyle().Foreground(crimsonRed).Bold(true)
-
-	// cursorStyle: pill solid (teks navy gelap di atas background mint)
-	// supaya pilihan yang aktif terasa mencolok & interaktif.
 	cursorStyle = lipgloss.NewStyle().Foreground(black).Background(cloudWhite).Bold(true).Padding(0, 1)
 	menuItemDim = lipgloss.NewStyle().Foreground(slateMist)
-
-	// Logo LEPKOM — tetap standar lintas-aplikasi: hijau tua (#2C4533), italic.
 	logoColor    = lipgloss.Color("#F8F8F2")
 	logoStyle    = lipgloss.NewStyle().Foreground(logoColor).Italic(true)
 	logoSubStyle = lipgloss.NewStyle().Foreground(slateMist).Bold(true)
 )
 
-// lepkomLogo — sama persis dengan versi lxd-control.
-const lepkomLogo = `     __       ______  ____    _  __  ____    __  ___ 
+const Logo = `     __       ______  ____    _  __  ____    __  ___ 
     /  /     / ____/ / __ \  / //_/ / __ \  /  |/  / 
    /  /     / /___  / /_/ / / ,<   / / / / / /|_/ /  
   /  /___  / /___  / ____/ / /| | / /_/ / / /  / /   
  /______/ /_____/ /_/     /_/ |_| \____/ /_/  /_/    `
 
-// renderLogo merender logo ASCII LEPKOM dengan subjudul
-// "G U N A D A R M A" yang otomatis dipusatkan sesuai lebar logo.
 func renderLogo() string {
-	width := lipgloss.Width(lepkomLogo)
-	logo := logoStyle.Render(lepkomLogo)
+	width := lipgloss.Width(Logo)
+	logo := logoStyle.Render(Logo)
 	sub := logoSubStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, "G U N A D A R M A"))
 	return logo + "\n" + sub
 }
 
-// ==================== MESSAGES ====================
-
+// Message
 type envInfoFetchedMsg struct {
 	info *EnvInfo
 	err  error

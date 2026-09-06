@@ -4,16 +4,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Init (bagian dari interface tea.Model) — dijalankan sekali di awal:
-// langsung fetch info environment dari API, sekaligus mulai animasi spinner.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(fetchEnvInfoCmd(m.client), m.spin.Tick)
 }
-
-// ==================== COMMANDS (operasi async) ====================
-// Semua fungsi di sini mengembalikan tea.Cmd: closure yang dijalankan
-// Bubble Tea di goroutine terpisah, hasilnya dikirim balik sebagai tea.Msg
-// ke Update() (lihat update.go).
 
 func fetchEnvInfoCmd(client *APIClient) tea.Cmd {
 	return func() tea.Msg {

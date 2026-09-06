@@ -7,8 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Update (bagian dari interface tea.Model) — satu-satunya tempat state
-// model boleh berubah, sesuai pola Bubble Tea/Elm Architecture.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -25,8 +23,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			// shouldContinueToShell TETAP false -> main() menutup sesi,
-			// tidak pernah lanjut ke shell, dari state manapun.
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
@@ -45,14 +41,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.state = screenError
 			if errors.Is(msg.err, ErrIdentityMismatch) {
-				m.errMsg = "Nama/NPM tidak cocok dengan environment ini.\nEnvironment ini sudah terdaftar atas nama praktikan lain."
+				m.errMsg = "Nama/NPM tidak cocok\n Environment ini sudah terdaftar"
 			} else {
 				m.errMsg = msg.err.Error()
 			}
 			return m, nil
 		}
-		// Identifikasi berhasil -> lanjut ke pemilihan user Linux, BUKAN
-		// langsung ke shell. Baca daftar user lokal dulu.
 		m.state = screenSelectUser
 		return m, loadLocalUsersCmd()
 
@@ -77,7 +71,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputPassword.SetValue("")
 			return m, nil
 		}
-		// Password cocok -> BARU di sini flag diizinkan lanjut ke shell.
 		m.shouldContinueToShell = true
 		return m, tea.Quit
 	}
@@ -85,17 +78,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey menangani semua input keyboard selain Ctrl+C (yang sudah
-// ditangani langsung di Update). Satu case per layar — pola ini konsisten
-// dengan lxd-control, memudahkan kalau nanti kedua project di-maintain
-// oleh orang yang sama.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.state {
 
 	case screenDashboard:
 		if msg.String() == "enter" {
-			// Selalu minta identifikasi/verifikasi, tidak ada jalan pintas
-			// otomatis lolos walau environment ini sudah pernah diisi.
 			m.state = screenInputNama
 			m.inputNama.Focus()
 		}
