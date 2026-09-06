@@ -14,8 +14,7 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gagal parse DATABASE_URL: %w", err)
 	}
-
-	// Batas pool disesuaikan untuk skala beban
+	
 	poolConfig.MaxConns = 20
 	poolConfig.MinConns = 2
 	poolConfig.MaxConnLifetime = time.Hour

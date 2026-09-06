@@ -1,6 +1,7 @@
 ## Otentikasi Token
 
-Setiap environment (container) punya token unik yang di-generate saat provisioning. Alur otentikasi:
+Setia container mempunyai token unik yang dibuat saat pembuatan container
+Alur otentikasi:
 
 1. TUI mengirim `Authorization: Bearer <token>` di setiap request.
 2. Middleware `Auth` meng-hash token itu dengan SHA-256, lalu query `environments` berdasarkan `api_token_hash`.
@@ -14,7 +15,8 @@ func HashToken(token string) string {
 }
 ```
 
-**Kenapa token perlu sama sekali?** Container praktikan bersifat *untrusted*. Tanpa otentikasi, satu container bisa memanipulasi data environment lain (sengaja atau karena bug). Token memastikan API tahu persis request datang dari environment mana.
+**Diclaimer**
+container praktikan bersifat untrusted dan tanpa autentikasi,satu container bisa saja memanipulasi data environment lain, sehingga token memastikan API tahu persis request datang dari environment yang mana
 
 ## Endpoint
 
@@ -56,14 +58,9 @@ Perlu header `Authorization: Bearer <token>`. Body:
 { "nama": "Budi Santoso", "npm": "2106123456" }
 ```
 
-Response sukses (baru diisi ATAU verifikasi NPM cocok): `{"success": true}` (200).
-Response kalau environment sudah pernah diisi dan NPM **tidak cocok**: `403 Forbidden` — lihat § 5.4a.
-
 ## Verifikasi Identitas
 
-**Latar belakang:** desain awal, kalau environment sudah pernah diisi (`praktikan_id` sudah ter-set), request `identify` berikutnya otomatis dianggap "konflik tidak fatal" (`409`) dan TUI tetap melanjutkan ke shell tanpa mengecek siapa yang login. Ini celah keamanan — siapapun yang tahu password root bisa langsung masuk ke environment orang lain tanpa verifikasi apapun.
-
-**Perilaku sekarang** — `IdentifyEnvironment()` mengunci baris environment (`SELECT ... FOR UPDATE`) lalu bercabang:
+`IdentifyEnvironment()` mengunci baris environment (`SELECT ... FOR UPDATE`). Keseluruhan dijalankan dalam satu transaksi dengan row lock (`FOR UPDATE`), agar aman dari race condition kalau terdaoat ada 2 request secara bersamaan ke environment yang sama
 
 ```sql
 SELECT p.npm
@@ -73,10 +70,10 @@ WHERE e.id = $1
 FOR UPDATE
 ```
 
-- **`praktikan_id` masih NULL** (belum pernah diisi) → jalankan upsert + link seperti biasa (lihat query di bawah).
-- **`praktikan_id` sudah terisi** → bandingkan `npm` yang di-submit dengan NPM yang sudah tercatat:
-  - **Cocok** → dianggap berhasil (verifikasi), tidak ada data yang diubah.
-  - **Tidak cocok** → kembalikan `ErrIdentityMismatch`, di-mapping handler ke `403 Forbidden`.
+- **`praktikan_id` masih kosong** makan akan menjalankan upsert + link seperti biasa
+- **`praktikan_id` sudah terisi** maka akan membandingkan `npm` yang di-submit dengan NPM yang sudah tercatat
+  - Jika **Cocok** maka akan dianggap berhasil dan tidak ada data yang diubah
+  - Jika **Tidak cocok** makan akan merespon `ErrIdentityMismatch` dan di-mapping handler ke `403 Forbidden`.
 
 ```sql
 -- Hanya dijalankan kalau environment BELUM pernah diisi
@@ -88,6 +85,4 @@ UPDATE environments SET praktikan_id = $1, identified_at = now()
 WHERE id = $2 AND praktikan_id IS NULL;
 ```
 
-Seluruh logic ini dijalankan dalam **satu transaksi** dengan row lock (`FOR UPDATE`), supaya aman dari race condition kalau ada 2 request bersamaan ke environment yang sama.
 
-> **Belum terselesaikan:** apakah reset environment (lihat [Infrastruktur LXD § 2.7](02-infrastruktur-lxd.md#27-reset--recovery)) seharusnya juga meng-*unlink* `praktikan_id` di database, supaya environment yang direset bisa diklaim praktikan baru? Saat ini reset **tidak** menyentuh database, jadi `praktikan_id` yang lama tetap "nempel" walau isi container sudah bersih — konsisten dengan tujuan anti-pinjam-PC, tapi perlu didiskusikan lagi untuk kasus environment yang sengaja mau dipindah kepemilikan (misal praktikan pindah kelas). Lihat [Log Perkembangan](09-progress-log.md).

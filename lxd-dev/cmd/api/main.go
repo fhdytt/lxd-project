@@ -49,7 +49,6 @@ func run() error {
 		Addr:    ":" + cfg.Port,
 		Handler: router,
 
-		// Timeout eksplisit untuk mencegah satu koneksi lambat/macet
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

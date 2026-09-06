@@ -11,10 +11,6 @@ TUI administrator merupakan pusat kontrol utama dari sistem ini. Dapat dijalanka
 5. **Kelola Ruangan** — CRUD ruangan
 6. **Kelola Sesi** — CRRUD sesi
 
-## Kenapa Tidak Lewat `lxd-dev`?
-
-`lxd-control` dijalankan oleh admin yang sudah mempunyai akses penuh shell, berbeda dengan `lxd-tui` yang jalan di container dan terkoneksi langsung ke PostgreSQL serta tidak perlu menunggu endpoint API
-
 ## Struktur File
 
 | File | Isi |
