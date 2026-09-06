@@ -4,12 +4,12 @@ TUI administrator merupakan pusat kontrol utama dari sistem ini. Dapat dijalanka
 
 ## Fitur
 
-1. **Lihat Daftar Environment** — pilih ruangan, lihat semua container
-2. **Persiapan Ruangan** — start (pilih modul + sesi yang sudah dibuat) atau stop
-3. **Ganti Sesi Ruangan** — pindah sesi tanpa hapus dan bikin ulang container 
-4. **Reset Environment** — reset 1 container atau seluruh ruangan
-5. **Kelola Ruangan** — CRUD ruangan
-6. **Kelola Sesi** — CRRUD sesi
+1. **Lihat Daftar Environment** -> pilih ruangan, lihat semua container
+2. **Persiapan Ruangan** -> start (pilih modul + sesi yang sudah dibuat) atau stop
+3. **Ganti Sesi Ruangan** ->pindah sesi tanpa hapus dan bikin ulang container 
+4. **Reset Environment** -> reset 1 container atau seluruh ruangan
+5. **Kelola Ruangan** -> CRUD ruangan
+6. **Kelola Sesi** -> CRUD sesi
 
 ## Struktur File
 
