@@ -11,30 +11,39 @@ cd lxd-project
 
 ```bash
 sudo snap install lxd
-sudo lxd init
+sudo lxd init        
+Would you like to use LXD clustering? (yes/no) [default=no]: no
+Do you want to configure a new storage pool? (yes/no) [default=yes]: yes
+Name of the new storage pool [default=default]: pool-lxd
+Name of the storage backend to use (ceph, dir, lvm, powerflex, powerstore, pure, btrfs, alletra, zfs) [default=zfs]: zfs
+Create a new ZFS pool? (yes/no) [default=yes]: yes
+Would you like to use an existing empty block device (e.g. a disk or partition)? (yes/no) [default=no]: no
+Size in GiB of the new loop device (1GiB minimum) [default=7GiB]: 5GiB
+Warning: Creating a bridge enables IPv4 and IPv6 forwarding on the host, which affects all interfaces.
+Would you like to create a new local network bridge? (yes/no) [default=yes]: yes
+What should the new bridge be called? [default=lxdbr0]: 
+What IPv4 address should be used? (CIDR subnet notation, “auto” or “none”) [default=auto]: 
+What IPv6 address should be used? (CIDR subnet notation, “auto” or “none”) [default=auto]:   
+Would you like the LXD server to be available over the network? (yes/no) [default=no]: no
+Would you like stale cached images to be updated automatically? (yes/no) [default=yes]: yes
+Would you like a YAML "lxd init" preseed to be printed? (yes/no) [default=no]: no
+
+## Cek Storage LXD
+lxc storage list
+
+## Cek Network LXD
+lxc network list
 ```
-
-Saat wizard, storage backend **zfs** (bikin pool baru kalau belum ada), network bridge baru (biarkan LXD generate subnet otomatis), trust password boleh di-skip
-
-> Kalau sudah ada instalasi LXD lama silahkan cek dulu `lxc storage list` dan `lxc network list` gunakan kembali pool ZFS dan bridge yang sudah ada, jangan init ulang
 
 ## Profile LXD
 
 ```bash
-lxc profile create praktikum-netbegin
-lxc profile device add praktikum-netbegin root disk path=/ pool=pool-lab
-lxc profile device add praktikum-netbegin eth0 nic network=lxdbr0
-lxc profile set praktikum-netbegin limits.cpu.allowance 20%
-lxc profile set praktikum-netbegin limits.memory 256MB
-
-lxc profile create praktikum-netadmin
-lxc profile device add praktikum-netadmin root disk path=/ pool=pool-lab
-lxc profile device add praktikum-netadmin eth0 nic network=lxdbr0
-lxc profile set praktikum-netadmin limits.cpu.allowance 40%
-lxc profile set praktikum-netadmin limits.memory 512MB
+lxc profile create nama-profile
+lxc profile device add nama profile root disk path=/ pool=pool-lab
+lxc profile device add nama-profile eth0 nic network=lxdbr0
+lxc profile set nama-profile limits.cpu.allowance 40%
+lxc profile set nama-profile limits.memory 512MB
 ```
-
-> Ganti `pool-lab`/`lxdbr0` sesuai nama pool/network dan resource sesuaikan spek server 
 
 ## Go & PostgreSQL
 
@@ -67,16 +76,12 @@ psql -U (user) -d (database_name) -h localhost -f schema.sql
 psql -U (user) -d (database_name) -h localhost -c '\dt'
 ```
 
-Harus muncul tabel: `modules`, `rooms`, `praktikan`, `sessions`, `environments`, `admins`
-
 ## Master Container
 
-Silahkan Ulangi untuk `netbegin` dan `netadmin`:
-
 ```bash
-lxc launch ubuntu:24.04 master-netbegin --profile praktikum-netbegin
-lxc start master-netbegin
-lxc exec master-netbegin -- bash
+lxc launch ubuntu:24.04 master-container --profile nama-profile
+lxc start master-container
+lxc exec master-container -- bash
 ```
 
 Di dalam container:
@@ -108,7 +113,7 @@ exit
 
 Set password `root` di dalam container:
 ```bash
-lxc exec master-netbegin -- passwd root
+lxc exec master-container -- passwd root
 ```
 
 ## Build & Jalankan `lxd-dev`
@@ -140,27 +145,25 @@ cd ~/lxd-project/lxd-tui
 go mod tidy    
 go build -o lxd-tui .
 
-lxc start master-netbegin 
-lxc file push lxd-tui master-netbegin/usr/local/bin/lxd-tui
-lxc exec master-netbegin -- chmod +x /usr/local/bin/lxd-tui
+lxc start master-container 
+lxc file push lxd-tui master-container/usr/local/bin/lxd-tui
+lxc exec master-container -- chmod +x /usr/local/bin/lxd-tui
 
-lxc exec master-netbegin -- bash
+lxc exec master-container -- bash
 ```
 
 Di dalam container:
 ```bash
 echo "Match User *" >> /etc/ssh/sshd_config
-echo "ForceCommand /usr/local/bin/praktikum-tui" >> /etc/ssh/sshd_config
+echo "ForceCommand /usr/local/bin/nama-tui" >> /etc/ssh/sshd_config
 sshd -t
 systemctl restart ssh
 exit
 ```
 
 ```bash
-lxc stop master-netbegin
+lxc stop master-container
 ```
-
-Ulangi untuk `master-netadmin`.
 
 ## Build & Setup `lxd-control`
 
